@@ -1,8 +1,15 @@
 import { useState } from "react";
 import { RefreshCw, Upload } from "lucide-react";
-import { api } from "../api";
+import { api, TargetType } from "../api";
 
-type ImportMode = "normalized" | "sherlock_csv" | "maigret_json" | "posts";
+type ImportMode =
+  | "normalized"
+  | "sherlock_csv"
+  | "maigret_json"
+  | "posts"
+  | "subfinder_jsonl"
+  | "amass_json"
+  | "spiderfoot_csv";
 
 const samples: Record<ImportMode, string> = {
   normalized: `[
@@ -33,20 +40,38 @@ example,GitHub,https://github.com,https://github.com/example,Claimed,200,0.31`,
     "text": "Public post content",
     "published_at": "2026-09-11T12:00:00Z"
   }
-]`
+]`,
+  subfinder_jsonl: `{"host":"api.example.org","input":"example.org","source":"crtsh"}
+{"host":"portal.example.org","input":"example.org","source":"dnsdumpster"}`,
+  amass_json: `{"name":"api.example.org","domain":"example.org","addresses":[{"ip":"203.0.113.10","cidr":"203.0.113.0/24","asn":64500,"desc":"Example network"}],"sources":["Certificate"]}`,
+  spiderfoot_csv: `Updated,Type,Module,Source,F/P,Data
+2026-09-11,INTERNET_NAME,sfp_dnsresolve,example.org,,api.example.org
+2026-09-11,IP_ADDRESS,sfp_dnsresolve,api.example.org,,203.0.113.10`
 };
+
+const toolModes = new Set<ImportMode>([
+  "sherlock_csv",
+  "maigret_json",
+  "subfinder_jsonl",
+  "amass_json",
+  "spiderfoot_csv"
+]);
 
 export default function ImportPanel({
   caseId,
+  targetType,
   onDone
 }: {
   caseId: string;
+  targetType: TargetType;
   onDone: () => void;
 }) {
   const [mode, setMode] = useState<ImportMode>("normalized");
   const [value, setValue] = useState(samples.normalized);
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
+
+  const infrastructureCase = targetType === "domain" || targetType === "organization";
 
   function changeMode(next: ImportMode) {
     setMode(next);
@@ -59,8 +84,12 @@ export default function ImportPanel({
     setMessage("");
     try {
       let result: Record<string, unknown>;
-      if (mode === "sherlock_csv" || mode === "maigret_json") {
-        result = await api.importTool(caseId, mode, value) as Record<string, unknown>;
+      if (toolModes.has(mode)) {
+        result = await api.importTool(
+          caseId,
+          mode as "sherlock_csv" | "maigret_json" | "subfinder_jsonl" | "amass_json" | "spiderfoot_csv",
+          value
+        ) as Record<string, unknown>;
       } else {
         const parsed = JSON.parse(value);
         if (!Array.isArray(parsed)) throw new Error("Use um array JSON");
@@ -91,8 +120,8 @@ export default function ImportPanel({
         <span className="eyebrow">ingestão</span>
         <h3>Adicionar evidências</h3>
         <p>
-          Normalize resultados públicos no mesmo evidence ledger. Relações de identidade
-          exigem sinais independentes além de nomes parecidos.
+          Normalize resultados públicos no mesmo evidence ledger. Infra adapters aparecem
+          apenas em cases de domínio/organização.
         </p>
         <label className="import-mode">
           <span>formato</span>
@@ -101,6 +130,9 @@ export default function ImportPanel({
             <option value="sherlock_csv">Sherlock · CSV</option>
             <option value="maigret_json">Maigret · JSON / NDJSON</option>
             <option value="posts">Posts públicos · coordenação</option>
+            {infrastructureCase && <option value="subfinder_jsonl">Subfinder · JSONL</option>}
+            {infrastructureCase && <option value="amass_json">OWASP Amass · JSON</option>}
+            {infrastructureCase && <option value="spiderfoot_csv">SpiderFoot · CSV infra</option>}
           </select>
         </label>
       </div>
