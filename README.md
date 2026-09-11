@@ -44,7 +44,8 @@ Built in:
 - RDAP domain registration context;
 - Internet Archive / Wayback;
 - public IP allocation RDAP;
-- URL archive history.
+- URL archive history;
+- public identity discovery across profile platforms using public web search, metadata, backlinks and historical GitHub README links.
 
 Imports/adapters:
 
@@ -61,6 +62,7 @@ Subfinder/Amass/SpiderFoot adapters are limited to domain/organization cases. Sp
 ### Analysis
 
 - conservative account correlation;
+- cross-handle identity discovery: different usernames can be surfaced from stable public signals such as display name, biography overlap, backlinks, shared external domains and historical links;
 - shared-domain/media multi-signal edges;
 - explainable fake/impersonation scoring;
 - synchronized identical-content detection;
@@ -155,15 +157,16 @@ make test
 ## Typical workflow
 
 1. Create a case with a clear intelligence question.
-2. Run built-in public sources for a domain, URL or public IP.
-3. Import tool output when relevant.
-4. Review the graph instead of accepting correlations blindly.
-5. Mark relationships confirmed/rejected/needs-review.
-6. Build hypotheses and record counterpoints.
-7. Use the timeline and coarse map to add context.
-8. Snapshot important evidence.
-9. Pin the items that should appear in the final report.
-10. Export the full or curated report.
+2. Run built-in public sources for a domain, URL, public IP or public account.
+3. For public accounts, review identity candidates separately from stronger evidence-backed relations.
+4. Import tool output when relevant.
+5. Review the graph instead of accepting correlations blindly.
+6. Mark relationships confirmed/rejected/needs-review.
+7. Build hypotheses and record counterpoints.
+8. Use the timeline and coarse map to add context.
+9. Snapshot important evidence.
+10. Pin the items that should appear in the final report.
+11. Export the full or curated report.
 
 ## Correlation policy
 
@@ -196,3 +199,24 @@ VIGIL is suitable for:
 - academic/journalistic verification workflows.
 
 See [SECURITY.md](SECURITY.md) for the responsible-use policy.
+
+
+## Cross-handle identity discovery
+
+For a public-account case, VIGIL does not assume that the same person reuses the same handle everywhere.
+
+The discovery pipeline works in stages:
+
+1. Search the supplied public handle/URL and collect candidate public profiles.
+2. Extract stable public anchors such as display names, profile descriptions and explicit outbound links.
+3. Pivot on those anchors to discover profiles whose usernames are different.
+4. Inspect public GitHub profile history because removed social links can remain attributable to historical commits.
+5. Score candidates with explainable signals.
+6. Keep weak matches as `identity_candidate`; only create `possibly_same_public_identity` when a stronger independent signal exists.
+
+Strong signals include explicit backlinks, historical GitHub links and shared external domains. Username similarity alone is deliberately weak.
+
+Optional environment variables:
+
+- `BRAVE_SEARCH_API_KEY` — preferred search provider. Without it, VIGIL falls back to DuckDuckGo HTML results.
+- `GITHUB_TOKEN` — optional token to increase public GitHub API rate limits for historical-profile collection.
