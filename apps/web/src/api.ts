@@ -228,7 +228,7 @@ export const api = {
     body: JSON.stringify({ observations })
   }),
 
-  importTool: (id: string, tool: "sherlock_csv" | "maigret_json", content: string) => request(`/cases/${id}/tool-import`, {
+  importTool: (id: string, tool: "sherlock_csv" | "maigret_json" | "subfinder_jsonl" | "amass_json" | "spiderfoot_csv", content: string) => request(`/cases/${id}/tool-import`, {
     method: "POST",
     body: JSON.stringify({ tool, content })
   }),
