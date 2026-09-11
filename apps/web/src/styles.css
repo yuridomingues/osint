@@ -138,3 +138,9 @@ a{color:inherit;text-decoration:none}
 @media(max-width:1180px){.stat-grid.six{grid-template-columns:repeat(3,1fr)}.report-layout{grid-template-columns:1fr}.export-panel{position:static}.geo-list{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:900px){.analysis-grid{grid-template-columns:1fr}.evidence-grid{grid-template-columns:1fr}.timeline-form,.geo-form{grid-template-columns:1fr 1fr}.timeline-form textarea{grid-column:1/-1}.geo-form button{grid-column:auto}.cluster-bar{grid-template-columns:1fr}.module-grid.expanded{grid-template-columns:1fr}.audit-list article{grid-template-columns:32px 1fr}.audit-list code,.audit-list time{grid-column:2}.graph-shell.large{height:570px}}
 @media(max-width:650px){.stat-grid.six{grid-template-columns:1fr 1fr}.timeline-item{grid-template-columns:26px 84px 1fr}.timeline-form,.geo-form{grid-template-columns:1fr}.geo-list{grid-template-columns:1fr}.panel-search input{min-width:120px}.section-toolbar{display:block}.section-toolbar>.toolbar-actions,.section-toolbar>.panel-search,.section-toolbar>.count-pill{margin-top:9px}.graph-filterbar{align-items:stretch}.graph-filterbar>*{flex:1 1 140px}.graph-search input{min-width:100px}.entity-inspector.wide{width:calc(100% - 24px);left:12px;right:12px}.report-layout{grid-template-columns:1fr}}
+
+.saved-view-select select{height:32px;background:#0a0f0c;border:1px solid #29362e;color:#9aaba0;border-radius:7px;padding:0 8px;font:9px DM Mono,monospace}
+.save-view-control{display:flex;align-items:center;gap:5px}
+.save-view-control>input{height:32px;background:#0a0f0c;border:1px solid #29362e;color:#aab8af;border-radius:7px;padding:0 8px;font-size:9px;width:120px;outline:none}
+.save-view-control>input:focus{border-color:#5a7061}
+.save-view-control button:disabled{opacity:.4}
