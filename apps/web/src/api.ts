@@ -85,5 +85,11 @@ export const api = {
   importObservations: (id: string, observations: unknown[]) => request(`/cases/${id}/observations`, {
     method: "POST", body: JSON.stringify({ observations })
   }),
+  importTool: (id: string, tool: "sherlock_csv" | "maigret_json", content: string) => request(`/cases/${id}/tool-import`, {
+    method: "POST", body: JSON.stringify({ tool, content })
+  }),
+  importPosts: (id: string, posts: unknown[]) => request(`/cases/${id}/posts`, {
+    method: "POST", body: JSON.stringify({ posts })
+  }),
   exportUrl: (id: string, format: "json" | "graphml") => `${API}/cases/${id}/export?format=${format}`
 };
