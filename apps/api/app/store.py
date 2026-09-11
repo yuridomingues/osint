@@ -48,7 +48,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS evidence(
               id TEXT PRIMARY KEY, case_id TEXT NOT NULL, source TEXT NOT NULL,
               collector TEXT NOT NULL, source_url TEXT, excerpt TEXT NOT NULL,
-              metadata TEXT NOT NULL, reliability REAL NOT NULL, observed_at TEXT NOT NULL
+              metadata TEXT NOT NULL, reliability REAL NOT NULL,
+              content_hash TEXT, observed_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS findings(
               id TEXT PRIMARY KEY, case_id TEXT NOT NULL, category TEXT NOT NULL,
@@ -61,17 +62,29 @@ class Store:
             CREATE INDEX IF NOT EXISTS idx_findings_case ON findings(case_id);
             """)
 
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(evidence)")}
+            if "content_hash" not in columns:
+                db.execute("ALTER TABLE evidence ADD COLUMN content_hash TEXT")
+
+            # Prevent repeated runs from creating visually duplicated relations.
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_edge_relation "
+                "ON edges(case_id, source_id, target_id, relation)"
+            )
+
     def create_case(self, payload: CaseCreate) -> Case:
         case = Case(
-            id=new_id("case"), name=payload.name, target=payload.target,
-            target_type=payload.target_type, objective=payload.objective,
-            created_at=utc_now()
+            id=new_id("case"),
+            name=payload.name,
+            target=payload.target,
+            target_type=payload.target_type,
+            objective=payload.objective,
+            created_at=utc_now(),
         )
         with self.connect() as db:
             db.execute(
-                "INSERT INTO cases VALUES(?,?,?,?,?,?,?)",
-                (case.id, case.name, case.target, case.target_type.value,
-                 case.objective, case.created_at, case.status)
+                "INSERT INTO cases(id,name,target,target_type,objective,created_at,status) VALUES(?,?,?,?,?,?,?)",
+                (case.id, case.name, case.target, case.target_type.value, case.objective, case.created_at, case.status),
             )
         return case
 
@@ -93,43 +106,81 @@ class Store:
         with self.connect() as db:
             row = db.execute(
                 "SELECT * FROM entities WHERE case_id=? AND canonical_key=?",
-                (item.case_id, item.canonical_key)
+                (item.case_id, item.canonical_key),
             ).fetchone()
             if row:
                 return self._entity(row), False
             db.execute(
-                "INSERT INTO entities VALUES(?,?,?,?,?,?,?,?)",
-                (item.id, item.case_id, item.kind, item.label, item.canonical_key,
-                 json.dumps(item.properties, ensure_ascii=False), item.confidence, item.created_at)
+                "INSERT INTO entities(id,case_id,kind,label,canonical_key,properties,confidence,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    item.id,
+                    item.case_id,
+                    item.kind,
+                    item.label,
+                    item.canonical_key,
+                    json.dumps(item.properties, ensure_ascii=False),
+                    item.confidence,
+                    item.created_at,
+                ),
             )
         return item, True
 
     def add_edge(self, item: Edge) -> Edge:
         with self.connect() as db:
             db.execute(
-                "INSERT INTO edges VALUES(?,?,?,?,?,?,?,?,?)",
-                (item.id, item.case_id, item.source_id, item.target_id, item.relation,
-                 item.confidence, json.dumps(item.rationale, ensure_ascii=False),
-                 json.dumps(item.evidence_ids), item.created_at)
+                "INSERT OR IGNORE INTO edges(id,case_id,source_id,target_id,relation,confidence,rationale,evidence_ids,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    item.id,
+                    item.case_id,
+                    item.source_id,
+                    item.target_id,
+                    item.relation,
+                    item.confidence,
+                    json.dumps(item.rationale, ensure_ascii=False),
+                    json.dumps(item.evidence_ids),
+                    item.created_at,
+                ),
             )
         return item
 
     def add_evidence(self, item: Evidence) -> Evidence:
         with self.connect() as db:
             db.execute(
-                "INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?)",
-                (item.id, item.case_id, item.source, item.collector, item.source_url,
-                 item.excerpt, json.dumps(item.metadata, ensure_ascii=False),
-                 item.reliability, item.observed_at)
+                "INSERT INTO evidence(id,case_id,source,collector,source_url,excerpt,metadata,reliability,content_hash,observed_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    item.id,
+                    item.case_id,
+                    item.source,
+                    item.collector,
+                    item.source_url,
+                    item.excerpt,
+                    json.dumps(item.metadata, ensure_ascii=False),
+                    item.reliability,
+                    item.content_hash,
+                    item.observed_at,
+                ),
             )
         return item
 
     def add_finding(self, item: Finding) -> Finding:
         with self.connect() as db:
             db.execute(
-                "INSERT INTO findings VALUES(?,?,?,?,?,?,?,?,?)",
-                (item.id, item.case_id, item.category, item.severity, item.title,
-                 item.summary, item.confidence, json.dumps(item.evidence_ids), item.created_at)
+                "INSERT INTO findings(id,case_id,category,severity,title,summary,confidence,evidence_ids,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    item.id,
+                    item.case_id,
+                    item.category,
+                    item.severity,
+                    item.title,
+                    item.summary,
+                    item.confidence,
+                    json.dumps(item.evidence_ids),
+                    item.created_at,
+                ),
             )
         return item
 
@@ -146,16 +197,25 @@ class Store:
 
     @staticmethod
     def _entity(row: sqlite3.Row) -> Entity:
-        d = dict(row); d["properties"] = json.loads(d["properties"]); return Entity(**d)
+        data = dict(row)
+        data["properties"] = json.loads(data["properties"])
+        return Entity(**data)
 
     @staticmethod
     def _edge(row: sqlite3.Row) -> Edge:
-        d = dict(row); d["rationale"] = json.loads(d["rationale"]); d["evidence_ids"] = json.loads(d["evidence_ids"]); return Edge(**d)
+        data = dict(row)
+        data["rationale"] = json.loads(data["rationale"])
+        data["evidence_ids"] = json.loads(data["evidence_ids"])
+        return Edge(**data)
 
     @staticmethod
     def _evidence(row: sqlite3.Row) -> Evidence:
-        d = dict(row); d["metadata"] = json.loads(d["metadata"]); return Evidence(**d)
+        data = dict(row)
+        data["metadata"] = json.loads(data["metadata"])
+        return Evidence(**data)
 
     @staticmethod
     def _finding(row: sqlite3.Row) -> Finding:
-        d = dict(row); d["evidence_ids"] = json.loads(d["evidence_ids"]); return Finding(**d)
+        data = dict(row)
+        data["evidence_ids"] = json.loads(data["evidence_ids"])
+        return Finding(**data)
