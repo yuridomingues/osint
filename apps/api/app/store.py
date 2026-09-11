@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+
+from .models import Case, CaseCreate, Edge, Entity, Evidence, Finding, GraphResponse, new_id, utc_now
+
+
+class Store:
+    def __init__(self, path: str | None = None) -> None:
+        self.path = path or os.getenv("VIGIL_DB_PATH", "./data/vigil.db")
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._init()
+
+    @contextmanager
+    def connect(self):
+        db = sqlite3.connect(self.path)
+        db.row_factory = sqlite3.Row
+        try:
+            yield db
+            db.commit()
+        finally:
+            db.close()
+
+    def _init(self) -> None:
+        with self.connect() as db:
+            db.executescript("""
+            PRAGMA journal_mode=WAL;
+            CREATE TABLE IF NOT EXISTS cases(
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, target TEXT NOT NULL,
+              target_type TEXT NOT NULL, objective TEXT NOT NULL,
+              created_at TEXT NOT NULL, status TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS entities(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, kind TEXT NOT NULL,
+              label TEXT NOT NULL, canonical_key TEXT NOT NULL,
+              properties TEXT NOT NULL, confidence REAL NOT NULL,
+              created_at TEXT NOT NULL, UNIQUE(case_id, canonical_key)
+            );
+            CREATE TABLE IF NOT EXISTS edges(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, source_id TEXT NOT NULL,
+              target_id TEXT NOT NULL, relation TEXT NOT NULL, confidence REAL NOT NULL,
+              rationale TEXT NOT NULL, evidence_ids TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evidence(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, source TEXT NOT NULL,
+              collector TEXT NOT NULL, source_url TEXT, excerpt TEXT NOT NULL,
+              metadata TEXT NOT NULL, reliability REAL NOT NULL, observed_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS findings(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, category TEXT NOT NULL,
+              severity TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
+              confidence REAL NOT NULL, evidence_ids TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_entities_case ON entities(case_id);
+            CREATE INDEX IF NOT EXISTS idx_edges_case ON edges(case_id);
+            CREATE INDEX IF NOT EXISTS idx_evidence_case ON evidence(case_id);
+            CREATE INDEX IF NOT EXISTS idx_findings_case ON findings(case_id);
+            """)
+
+    def create_case(self, payload: CaseCreate) -> Case:
+        case = Case(
+            id=new_id("case"), name=payload.name, target=payload.target,
+            target_type=payload.target_type, objective=payload.objective,
+            created_at=utc_now()
+        )
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO cases VALUES(?,?,?,?,?,?,?)",
+                (case.id, case.name, case.target, case.target_type.value,
+                 case.objective, case.created_at, case.status)
+            )
+        return case
+
+    def list_cases(self) -> list[Case]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM cases ORDER BY created_at DESC").fetchall()
+        return [Case(**dict(r)) for r in rows]
+
+    def get_case(self, case_id: str) -> Case | None:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
+        return Case(**dict(row)) if row else None
+
+    def set_status(self, case_id: str, status: str) -> None:
+        with self.connect() as db:
+            db.execute("UPDATE cases SET status=? WHERE id=?", (status, case_id))
+
+    def upsert_entity(self, item: Entity) -> tuple[Entity, bool]:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM entities WHERE case_id=? AND canonical_key=?",
+                (item.case_id, item.canonical_key)
+            ).fetchone()
+            if row:
+                return self._entity(row), False
+            db.execute(
+                "INSERT INTO entities VALUES(?,?,?,?,?,?,?,?)",
+                (item.id, item.case_id, item.kind, item.label, item.canonical_key,
+                 json.dumps(item.properties, ensure_ascii=False), item.confidence, item.created_at)
+            )
+        return item, True
+
+    def add_edge(self, item: Edge) -> Edge:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO edges VALUES(?,?,?,?,?,?,?,?,?)",
+                (item.id, item.case_id, item.source_id, item.target_id, item.relation,
+                 item.confidence, json.dumps(item.rationale, ensure_ascii=False),
+                 json.dumps(item.evidence_ids), item.created_at)
+            )
+        return item
+
+    def add_evidence(self, item: Evidence) -> Evidence:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?)",
+                (item.id, item.case_id, item.source, item.collector, item.source_url,
+                 item.excerpt, json.dumps(item.metadata, ensure_ascii=False),
+                 item.reliability, item.observed_at)
+            )
+        return item
+
+    def add_finding(self, item: Finding) -> Finding:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO findings VALUES(?,?,?,?,?,?,?,?,?)",
+                (item.id, item.case_id, item.category, item.severity, item.title,
+                 item.summary, item.confidence, json.dumps(item.evidence_ids), item.created_at)
+            )
+        return item
+
+    def graph(self, case_id: str) -> GraphResponse | None:
+        case = self.get_case(case_id)
+        if not case:
+            return None
+        with self.connect() as db:
+            entities = [self._entity(r) for r in db.execute("SELECT * FROM entities WHERE case_id=?", (case_id,))]
+            edges = [self._edge(r) for r in db.execute("SELECT * FROM edges WHERE case_id=?", (case_id,))]
+            evidence = [self._evidence(r) for r in db.execute("SELECT * FROM evidence WHERE case_id=?", (case_id,))]
+            findings = [self._finding(r) for r in db.execute("SELECT * FROM findings WHERE case_id=?", (case_id,))]
+        return GraphResponse(case=case, entities=entities, edges=edges, evidence=evidence, findings=findings)
+
+    @staticmethod
+    def _entity(row: sqlite3.Row) -> Entity:
+        d = dict(row); d["properties"] = json.loads(d["properties"]); return Entity(**d)
+
+    @staticmethod
+    def _edge(row: sqlite3.Row) -> Edge:
+        d = dict(row); d["rationale"] = json.loads(d["rationale"]); d["evidence_ids"] = json.loads(d["evidence_ids"]); return Edge(**d)
+
+    @staticmethod
+    def _evidence(row: sqlite3.Row) -> Evidence:
+        d = dict(row); d["metadata"] = json.loads(d["metadata"]); return Evidence(**d)
+
+    @staticmethod
+    def _finding(row: sqlite3.Row) -> Finding:
+        d = dict(row); d["evidence_ids"] = json.loads(d["evidence_ids"]); return Finding(**d)
