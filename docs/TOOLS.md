@@ -9,6 +9,8 @@ VIGIL is an orchestration and analysis layer. It should not clone mature tools w
 | Certificate Transparency / crt.sh | public certificate names | built-in passive collector |
 | RDAP | public domain registration metadata | built-in passive collector |
 | Internet Archive CDX | public historical URL evidence | built-in passive collector |
+| Brave Search / DuckDuckGo fallback | public profile candidate discovery | built-in passive identity collector |
+| GitHub public history | removed profile links and historical public evidence | built-in passive identity collector |
 | Sherlock | public username results | CSV import adapter |
 | Maigret | public username results | JSON / NDJSON import adapter |
 | Cytoscape.js | entity-link analysis | native UI graph |
@@ -77,3 +79,10 @@ For long-running integrations, use an isolated worker/container per tool.
 5. Passive Amass/Subfinder result ingestion.
 6. URL/domain enrichment providers.
 7. Signed case bundles and reproducible collection manifests.
+
+
+## Identity discovery strategy
+
+VIGIL separates *finding a candidate* from *attributing identity*.
+
+A profile with a different username can still be found from public display names, descriptive text, explicit cross-links, a shared external domain, or a URL preserved in public Git history. Search results are leads. The correlation score records why a relation exists and does not treat username or display-name similarity alone as proof.
