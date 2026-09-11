@@ -25,6 +25,7 @@ This document separates product capability from data-provider coverage.
 | Domain passive OSINT | Ready | Certificate Transparency, RDAP, Wayback |
 | URL passive OSINT | Ready | normalization + Wayback |
 | IP passive context | Ready | public allocation/RDAP; no precise-person geolocation |
+| Public identity discovery | Ready | cross-handle candidates from public web search, metadata, backlinks, external domains and GitHub history |
 | Sherlock import | Ready | public account CSV |
 | Maigret import | Ready | public account JSON/NDJSON |
 | Subfinder import | Ready | organizational/domain JSONL |
@@ -57,6 +58,7 @@ These are integration points rather than reasons to fork upstream projects.
 VIGIL is not designed to:
 
 - create automated dossiers on private people;
+- use private contact details as automatic identity pivots;
 - perform mass email/phone/name lookup;
 - use leaked credential databases;
 - identify private people using face recognition;
