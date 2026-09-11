@@ -256,6 +256,8 @@ def score_candidate(
     names: set[str],
     known_profiles: set[str],
     candidate: Candidate,
+    anchor_texts: set[str] | None = None,
+    known_external_hosts: set[str] | None = None,
 ) -> tuple[float, list[str], bool]:
     score = 0.0
     reasons: list[str] = []
@@ -281,6 +283,38 @@ def score_candidate(
         score += 0.48
         strong_signal = True
         reasons.append("candidate links back to an already observed public profile")
+
+    anchor_texts = anchor_texts or set()
+    known_external_hosts = known_external_hosts or set()
+
+    if candidate.description and anchor_texts:
+        bio_match = max(
+            (_name_similarity(candidate.description, text) for text in anchor_texts if len(text) >= 20),
+            default=0.0,
+        )
+        if bio_match >= 0.62:
+            score += 0.28
+            reasons.append("public biography/content strongly overlaps an independently observed profile")
+            if best_name >= 0.72:
+                strong_signal = True
+                reasons.append("name + biography provide two independent public identity signals")
+        elif bio_match >= 0.48:
+            score += 0.15
+            reasons.append("public biography/content partially overlaps an independently observed profile")
+
+    candidate_hosts = {
+        (urlparse(url).hostname or "").casefold().removeprefix("www.")
+        for url in candidate.outbound_links
+        if _safe_outbound(url)
+    }
+    shared_external = {
+        host for host in candidate_hosts & known_external_hosts
+        if host and host not in {x.removeprefix("www.") for x in SAFE_PROFILE_HOSTS}
+    }
+    if shared_external:
+        score += 0.36
+        strong_signal = True
+        reasons.append("candidate shares an external public domain with an observed profile")
 
     if candidate.provenance == "github_history":
         score += 0.60
@@ -428,6 +462,8 @@ async def collect_public_identity_discovery(
         known_profiles.add(seed_url)
 
     names: set[str] = set()
+    anchor_texts: set[str] = set()
+    known_external_hosts: set[str] = set()
     candidates: dict[str, Candidate] = {}
 
     async with httpx.AsyncClient(
@@ -541,12 +577,25 @@ async def collect_public_identity_discovery(
             if possible_name:
                 names.add(possible_name)
 
-        # Profiles with the seed handle or strong name match become anchors before history analysis.
+        # Profiles that preserve the seed handle are initial anchors. Their public text and
+        # external domains can reveal accounts whose usernames are completely different.
         for candidate in candidates.values():
             same_handle = _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
+            if same_handle:
+                known_profiles.add(candidate.url)
+                if len(candidate.description) >= 20:
+                    anchor_texts.add(candidate.description)
+                for outbound in candidate.outbound_links:
+                    host = (urlparse(outbound).hostname or "").casefold().removeprefix("www.")
+                    if host and host not in {x.removeprefix("www.") for x in SAFE_PROFILE_HOSTS}:
+                        known_external_hosts.add(host)
+
+        # A very strong public-name match is useful as a search anchor, but it is not
+        # by itself treated as proof of identity.
+        for candidate in candidates.values():
             possible_name = _candidate_name(candidate.title, candidate.handle)
             name_match = max((_name_similarity(possible_name, n) for n in names), default=0.0)
-            if same_handle or name_match >= 0.92:
+            if name_match >= 0.95:
                 known_profiles.add(candidate.url)
 
         # Git history is a high-value public source because removed social links remain attributable.
@@ -595,7 +644,14 @@ async def collect_public_identity_discovery(
 
     confirmed = 0
     for canonical, candidate in candidates.items():
-        score, reasons, strong = score_candidate(seed_handle, names, known_profiles, candidate)
+        score, reasons, strong = score_candidate(
+            seed_handle,
+            names,
+            known_profiles,
+            candidate,
+            anchor_texts=anchor_texts,
+            known_external_hosts=known_external_hosts,
+        )
 
         entity = Entity(
             id=new_id("ent"),
@@ -616,20 +672,28 @@ async def collect_public_identity_discovery(
         entity, was_created = store.upsert_entity(entity)
         created += int(was_created)
 
-        if score >= 0.45 and strong and entity.id != root.id:
-            store.add_edge(
-                Edge(
-                    id=new_id("edge"),
-                    case_id=case_id,
-                    source_id=root.id,
-                    target_id=entity.id,
-                    relation="possibly_same_public_identity",
-                    confidence=score,
-                    rationale=reasons,
-                    evidence_ids=candidate.evidence_ids[:20],
+        if entity.id != root.id and reasons:
+            if score >= 0.45 and strong:
+                relation = "possibly_same_public_identity"
+                confirmed += 1
+            elif score >= 0.25:
+                relation = "identity_candidate"
+            else:
+                relation = ""
+
+            if relation:
+                store.add_edge(
+                    Edge(
+                        id=new_id("edge"),
+                        case_id=case_id,
+                        source_id=root.id,
+                        target_id=entity.id,
+                        relation=relation,
+                        confidence=score,
+                        rationale=reasons,
+                        evidence_ids=candidate.evidence_ids[:20],
+                    )
                 )
-            )
-            confirmed += 1
 
     if candidates:
         finding = Finding(
