@@ -5,6 +5,8 @@ VIGIL is intended for public-source, defensive and authorized investigations.
 ## Supported scope
 
 - public brand/account impersonation;
+- self-OSINT and authorized public-profile exposure review;
+- public-profile identity resolution when based on lawful public evidence;
 - misinformation and coordinated-behavior analysis from public datasets;
 - corporate threat intelligence;
 - passive asset discovery for domains and organizations you are permitted to assess;
@@ -19,6 +21,7 @@ Do not add collectors or features for:
 - bypassing authentication or access controls;
 - leaked credential databases;
 - private data brokers or residential-address discovery;
+- using private phone numbers, private email addresses or residential data as automatic identity pivots;
 - stalking or automated harassment;
 - offensive social engineering;
 - automated influence operations;
