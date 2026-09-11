@@ -76,3 +76,25 @@ def test_substack_and_x_urls_are_canonicalized():
 def test_candidate_name_and_handle_normalization():
     assert _candidate_name("Yuri Domingues | Substack", "somethingelse") == "Yuri Domingues"
     assert _normalize_handle("DominguesYuri_") == "dominguesyuri"
+
+
+def test_name_plus_bio_can_support_different_handle_candidate():
+    candidate = Candidate(
+        url="https://substack.com/@unrelatedhandle",
+        platform="substack",
+        handle="unrelatedhandle",
+        title="Yuri Domingues | Substack",
+        description="Software engineering, AI engineering, OSINT and cybersecurity.",
+    )
+
+    score, reasons, strong = score_candidate(
+        "dominguesyuri_",
+        {"Yuri Domingues"},
+        set(),
+        candidate,
+        anchor_texts={"Software engineering, AI engineering, OSINT and cybersecurity."},
+    )
+
+    assert score >= 0.55
+    assert strong
+    assert any("biography" in reason for reason in reasons)
