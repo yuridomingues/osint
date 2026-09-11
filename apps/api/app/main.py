@@ -10,6 +10,7 @@ from .collectors import collect_domain_public_sources
 from .coordination import analyze_public_posts
 from .correlation import import_public_observations
 from .exporters import as_graphml, as_json
+from .identity_discovery import collect_public_identity_discovery
 from .models import (
     Assessment,
     Case,
@@ -67,7 +68,7 @@ from .workspace import (
 
 app = FastAPI(
     title="VIGIL OSINT API",
-    version="0.2.0",
+    version="0.3.0",
     description="Public-source investigation, provenance, link analysis and analyst-workspace API.",
 )
 
@@ -96,7 +97,7 @@ def require_case(case_id: str) -> Case:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "vigil-osint-api", "version": "0.2.0"}
+    return {"status": "ok", "service": "vigil-osint-api", "version": "0.3.0"}
 
 
 @app.get("/modules")
@@ -122,6 +123,13 @@ def modules() -> list[dict]:
             "mode": "passive",
             "available": True,
             "description": "URL/domain normalization plus Internet Archive history.",
+        },
+        {
+            "id": "identity-discovery",
+            "name": "Public identity discovery",
+            "mode": "passive",
+            "available": True,
+            "description": "Different-handle public-profile discovery using web search, public metadata, explicit backlinks and GitHub history.",
         },
         {
             "id": "sherlock",
@@ -280,11 +288,17 @@ async def run_case(case_id: str, payload: RunRequest) -> RunResponse:
             warnings.extend(w)
             modules_run.append("public-url")
 
-        if case.target_type == TargetType.PUBLIC_ACCOUNT:
-            warnings.append(
-                "Contas públicas são correlacionadas a partir de observações importadas; "
-                "não há varredura automática de pessoas."
+        if case.target_type == TargetType.PUBLIC_ACCOUNT and (
+            run_default or "identity-discovery" in requested
+        ):
+            a, b, c, w = await collect_public_identity_discovery(
+                store, case_id, case.target
             )
+            entities_added += a
+            evidence_added += b
+            findings_added += c
+            warnings.extend(w)
+            modules_run.append("identity-discovery")
     finally:
         store.set_status(case_id, "ready")
 
