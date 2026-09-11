@@ -173,11 +173,25 @@ def modules() -> list[dict]:
             "description": "Print-ready HTML, Markdown, evidence CSV, JSON and GraphML.",
         },
         {
+            "id": "subfinder",
+            "name": "ProjectDiscovery Subfinder",
+            "mode": "import",
+            "available": True,
+            "description": "JSONL passive-hostname export adapter for organizational cases.",
+        },
+        {
+            "id": "amass",
+            "name": "OWASP Amass",
+            "mode": "import",
+            "available": True,
+            "description": "JSON passive asset graph adapter for organizational cases.",
+        },
+        {
             "id": "spiderfoot",
             "name": "SpiderFoot",
-            "mode": "adapter",
-            "available": False,
-            "description": "Structured import adapter planned.",
+            "mode": "import",
+            "available": True,
+            "description": "CSV infrastructure-result adapter with person/contact event types excluded.",
         },
         {
             "id": "opencti-misp",
@@ -317,7 +331,16 @@ def import_observations(case_id: str, payload: ObservationImport) -> dict:
 
 @app.post("/cases/{case_id}/tool-import")
 def tool_import(case_id: str, payload: ToolImport) -> dict:
-    require_case(case_id)
+    case = require_case(case_id)
+    infrastructure_tools = {"subfinder_jsonl", "amass_json", "spiderfoot_csv"}
+    if payload.tool in infrastructure_tools and case.target_type not in {
+        TargetType.DOMAIN,
+        TargetType.ORGANIZATION,
+    }:
+        raise HTTPException(
+            400,
+            "Infrastructure adapters are limited to domain/organization cases.",
+        )
     try:
         result = import_tool_export(store, case_id, payload.tool, payload.content)
         auto_timeline_from_evidence(store, case_id)
