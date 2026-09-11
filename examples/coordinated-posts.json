@@ -1,0 +1,23 @@
+[
+  {
+    "platform": "example-social",
+    "author_handle": "fixture_a",
+    "url": "https://social.example/post/a",
+    "text": "This is synthetic public fixture content.",
+    "published_at": "2026-09-11T12:00:00Z"
+  },
+  {
+    "platform": "example-social",
+    "author_handle": "fixture_b",
+    "url": "https://social.example/post/b",
+    "text": "This is synthetic public fixture content.",
+    "published_at": "2026-09-11T12:07:00Z"
+  },
+  {
+    "platform": "example-social",
+    "author_handle": "fixture_c",
+    "url": "https://social.example/post/c",
+    "text": "This is synthetic public fixture content.",
+    "published_at": "2026-09-11T12:12:00Z"
+  }
+]
