@@ -77,6 +77,7 @@ class Evidence(BaseModel):
     excerpt: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     reliability: float = Field(default=0.6, ge=0, le=1)
+    content_hash: str | None = None
     observed_at: str = Field(default_factory=utc_now)
 
 
@@ -113,6 +114,18 @@ class PublicObservation(BaseModel):
 
 class ObservationImport(BaseModel):
     observations: list[PublicObservation] = Field(min_length=1, max_length=500)
+
+
+class PublicPost(BaseModel):
+    platform: str = Field(min_length=2, max_length=80)
+    author_handle: str = Field(min_length=1, max_length=120)
+    url: str | None = None
+    text: str = Field(min_length=1, max_length=10000)
+    published_at: str
+
+
+class PostImport(BaseModel):
+    posts: list[PublicPost] = Field(min_length=1, max_length=1000)
 
 
 class RunRequest(BaseModel):
