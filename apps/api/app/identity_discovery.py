@@ -450,7 +450,11 @@ async def collect_public_identity_discovery(
         case_id=case_id,
         kind="public_account",
         label=f"@{seed_handle}",
-        canonical_key=f"public-account:seed:{_normalize_handle(seed_handle)}",
+        canonical_key=(
+            f"public-account:{seed_platform}:{_normalize_handle(seed_handle)}"
+            if seed_platform
+            else f"public-account:seed:{_normalize_handle(seed_handle)}"
+        ),
         properties={"handle": seed_handle, "platform": seed_platform or "unknown", "url": seed_url},
         confidence=0.98,
     )
@@ -503,7 +507,13 @@ async def collect_public_identity_discovery(
                 if not candidate.title:
                     candidate.title = hit.title
                 possible_name = _candidate_name(hit.title, handle)
-                if possible_name:
+                is_seed_profile = bool(seed_url and canonical == seed_url)
+                is_seed_platform_match = bool(
+                    seed_platform
+                    and platform == seed_platform
+                    and _normalize_handle(handle) == _normalize_handle(seed_handle)
+                )
+                if possible_name and (is_seed_profile or is_seed_platform_match or not seed_url):
                     names.add(possible_name)
 
                 ev = Evidence(
@@ -574,14 +584,25 @@ async def collect_public_identity_discovery(
         for candidate in list(candidates.values())[:40]:
             await _fetch_candidate(client, candidate)
             possible_name = _candidate_name(candidate.title, candidate.handle)
-            if possible_name:
+            is_seed_profile = bool(seed_url and candidate.url == seed_url)
+            is_seed_platform_match = bool(
+                seed_platform
+                and candidate.platform == seed_platform
+                and _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
+            )
+            if possible_name and (is_seed_profile or is_seed_platform_match or not seed_url):
                 names.add(possible_name)
 
-        # Profiles that preserve the seed handle are initial anchors. Their public text and
-        # external domains can reveal accounts whose usernames are completely different.
+        # Only the supplied seed profile is a trusted initial anchor. Reusing a username
+        # on another platform remains a weak lead until another public signal connects it.
         for candidate in candidates.values():
-            same_handle = _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
-            if same_handle:
+            is_seed_profile = bool(seed_url and candidate.url == seed_url)
+            is_seed_platform_match = bool(
+                seed_platform
+                and candidate.platform == seed_platform
+                and _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
+            )
+            if is_seed_profile or is_seed_platform_match:
                 known_profiles.add(candidate.url)
                 if len(candidate.description) >= 20:
                     anchor_texts.add(candidate.description)
@@ -590,19 +611,22 @@ async def collect_public_identity_discovery(
                     if host and host not in {x.removeprefix("www.") for x in SAFE_PROFILE_HOSTS}:
                         known_external_hosts.add(host)
 
-        # A very strong public-name match is useful as a search anchor, but it is not
-        # by itself treated as proof of identity.
-        for candidate in candidates.values():
-            possible_name = _candidate_name(candidate.title, candidate.handle)
-            name_match = max((_name_similarity(possible_name, n) for n in names), default=0.0)
-            if name_match >= 0.95:
-                known_profiles.add(candidate.url)
-
         # Git history is a high-value public source because removed social links remain attributable.
         github_candidates = [c for c in candidates.values() if c.platform == "github"]
         for github in github_candidates[:8]:
             historical, history_warnings = await _github_history_links(client, github.handle)
             warnings.extend(w for w in history_warnings if w not in warnings)
+
+            # Git history becomes attribution evidence only when it points back to an
+            # already trusted profile from this case. This blocks same-name GitHub false positives.
+            anchored_links = {
+                historical_url for historical_url, _ in historical if historical_url in known_profiles
+            }
+            history_is_anchored = bool(anchored_links)
+            if history_is_anchored:
+                github.provenance = "github_history"
+                known_profiles.add(github.url)
+
             for historical_url, sha in historical:
                 platform = _platform_for_url(historical_url)
                 if not platform:
@@ -614,10 +638,14 @@ async def collect_public_identity_discovery(
                         url=historical_url,
                         platform=platform,
                         handle=handle,
-                        provenance="github_history",
+                        provenance=(
+                            "github_history" if history_is_anchored else "github_history_unanchored"
+                        ),
                     ),
                 )
-                historical_candidate.provenance = "github_history"
+                if history_is_anchored:
+                    historical_candidate.provenance = "github_history"
+
                 ev = Evidence(
                     id=new_id("ev"),
                     case_id=case_id,
@@ -629,13 +657,17 @@ async def collect_public_identity_discovery(
                         "github_handle": github.handle,
                         "commit": sha,
                         "discovered_profile": historical_url,
+                        "history_anchored_to_seed": history_is_anchored,
                     },
-                    reliability=0.92,
+                    reliability=0.92 if history_is_anchored else 0.68,
                 )
                 store.add_evidence(ev)
                 historical_candidate.evidence_ids.append(ev.id)
+                if historical_url in anchored_links:
+                    github.evidence_ids.append(ev.id)
                 evidence_added += 1
-                known_profiles.add(historical_url)
+                if history_is_anchored:
+                    known_profiles.add(historical_url)
 
         # Fetch metadata for any profiles discovered only through history.
         for candidate in candidates.values():
