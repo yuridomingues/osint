@@ -593,6 +593,13 @@ async def collect_public_identity_discovery(
     anchor_texts: set[str] = set()
     known_external_hosts: set[str] = set()
     candidates: dict[str, Candidate] = {}
+    if seed_url and seed_platform:
+        candidates[seed_url] = Candidate(
+            url=seed_url,
+            platform=seed_platform,
+            handle=seed_handle,
+            provenance="seed",
+        )
 
     async with httpx.AsyncClient(
         timeout=SEARCH_TIMEOUT,
@@ -664,8 +671,24 @@ async def collect_public_identity_discovery(
                 candidate.evidence_ids.append(ev.id)
                 evidence_added += 1
 
+        # Resolve the supplied seed before cross-handle pivots. If the platform exposes
+        # a public title/bio, this gives us a stable name or text anchor without guessing.
+        for candidate in list(candidates.values()):
+            is_seed_profile = bool(seed_url and candidate.url == seed_url)
+            is_seed_platform_match = bool(
+                seed_platform
+                and candidate.platform == seed_platform
+                and _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
+            )
+            if not (is_seed_profile or is_seed_platform_match):
+                continue
+            await _fetch_candidate(client, candidate)
+            possible_name = _candidate_name(candidate.title, candidate.handle)
+            if possible_name:
+                names.add(possible_name)
+
         # A different handle can still be discoverable through stable public identity anchors.
-        # Use names observed in the first pass, not guesses manufactured from the username.
+        # Use names observed from the supplied seed, not names manufactured from a username.
         for name in sorted(names)[:3]:
             substack_candidates, substack_warning = await _substack_people_search(client, name)
             if substack_warning and substack_warning not in warnings:
