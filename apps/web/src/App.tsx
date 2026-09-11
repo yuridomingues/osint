@@ -204,10 +204,35 @@ function NewCaseModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 type ImportMode = "normalized" | "sherlock_csv" | "maigret_json" | "posts";
 
 const importSamples: Record<ImportMode, string> = {
-  normalized: "[\\n  {\\n    \\"platform\\": \\"github\\",\\n    \\"handle\\": \\"example\\",\\n    \\"profile_url\\": \\"https://github.com/example\\",\\n    \\"display_name\\": \\"Example\\",\\n    \\"bio\\": \\"Public profile observation\\",\\n    \\"external_urls\\": [\\"https://example.org\\"],\\n    \\"media_hashes\\": []\\n  }\\n]",
-  sherlock_csv: "username,name,url_main,url_user,exists,http_status,response_time_s\\nexample,GitHub,https://github.com,https://github.com/example,Claimed,200,0.31",
-  maigret_json: "{\\n  \\"GitHub\\": {\\n    \\"username\\": \\"example\\",\\n    \\"url_user\\": \\"https://github.com/example\\",\\n    \\"status\\": \\"Claimed\\"\\n  }\\n}",
-  posts: "[\\n  {\\n    \\"platform\\": \\"example-platform\\",\\n    \\"author_handle\\": \\"account_a\\",\\n    \\"url\\": \\"https://example.org/post/1\\",\\n    \\"text\\": \\"Public post content\\",\\n    \\"published_at\\": \\"2026-09-11T12:00:00Z\\"\\n  }\\n]"
+  normalized: `[
+  {
+    "platform": "github",
+    "handle": "example",
+    "profile_url": "https://github.com/example",
+    "display_name": "Example",
+    "bio": "Public profile observation",
+    "external_urls": ["https://example.org"],
+    "media_hashes": []
+  }
+]`,
+  sherlock_csv: `username,name,url_main,url_user,exists,http_status,response_time_s
+example,GitHub,https://github.com,https://github.com/example,Claimed,200,0.31`,
+  maigret_json: `{
+  "GitHub": {
+    "username": "example",
+    "url_user": "https://github.com/example",
+    "status": "Claimed"
+  }
+}`,
+  posts: `[
+  {
+    "platform": "example-platform",
+    "author_handle": "account_a",
+    "url": "https://example.org/post/1",
+    "text": "Public post content",
+    "published_at": "2026-09-11T12:00:00Z"
+  }
+]`
 };
 
 function ImportPanel({ caseId, onDone }: { caseId: string; onDone: () => void }) {
