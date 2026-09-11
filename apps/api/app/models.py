@@ -120,7 +120,7 @@ class ObservationImport(BaseModel):
 
 
 class ToolImport(BaseModel):
-    tool: str = Field(pattern=r"^(sherlock_csv|maigret_json)$")
+    tool: str = Field(pattern=r"^(sherlock_csv|maigret_json|subfinder_jsonl|amass_json|spiderfoot_csv)$")
     content: str = Field(min_length=1, max_length=5_000_000)
 
 
