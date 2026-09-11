@@ -98,3 +98,23 @@ def test_name_plus_bio_can_support_different_handle_candidate():
     assert score >= 0.55
     assert strong
     assert any("biography" in reason for reason in reasons)
+
+
+def test_unanchored_github_history_is_not_strong_identity_evidence():
+    candidate = Candidate(
+        url="https://x.com/someotheraccount",
+        platform="x",
+        handle="someotheraccount",
+        provenance="github_history_unanchored",
+    )
+
+    score, reasons, strong = score_candidate(
+        "dominguesyuri_",
+        {"Yuri Domingues"},
+        {"https://www.instagram.com/dominguesyuri_"},
+        candidate,
+    )
+
+    assert score < 0.45
+    assert not strong
+    assert not any("Git history" in reason for reason in reasons)
