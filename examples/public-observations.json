@@ -1,0 +1,20 @@
+[
+  {
+    "platform": "github",
+    "handle": "example-team",
+    "profile_url": "https://github.com/example-team",
+    "display_name": "Example Team",
+    "bio": "Public example fixture",
+    "external_urls": ["https://example.org"],
+    "media_hashes": []
+  },
+  {
+    "platform": "example-social",
+    "handle": "example.team",
+    "profile_url": "https://social.example/example.team",
+    "display_name": "Example Team",
+    "bio": "Second public example fixture",
+    "external_urls": ["https://example.org"],
+    "media_hashes": []
+  }
+]
