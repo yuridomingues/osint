@@ -363,7 +363,131 @@ async def _web_search(client: httpx.AsyncClient, query: str) -> tuple[list[Searc
         return [], f"DuckDuckGo fallback unavailable: {type(exc).__name__}"
 
 
+def _walk_dicts(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dicts(child)
+
+
+def _public_links_from_mapping(data: dict) -> set[str]:
+    links: set[str] = set()
+    for key, value in data.items():
+        key_l = str(key).casefold()
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            if any(token in key_l for token in ("url", "link", "website", "social", "linkedin", "twitter", "instagram")):
+                safe = _safe_outbound(value)
+                if safe:
+                    links.add(safe)
+        elif isinstance(value, (list, dict)) and any(
+            token in key_l for token in ("social", "links", "identities")
+        ):
+            for nested in _walk_dicts(value):
+                for nested_value in nested.values():
+                    if isinstance(nested_value, str) and nested_value.startswith(("http://", "https://")):
+                        safe = _safe_outbound(nested_value)
+                        if safe:
+                            links.add(safe)
+    return links
+
+
+async def _substack_public_profile(
+    client: httpx.AsyncClient,
+    handle: str,
+) -> Candidate | None:
+    handle = handle.lstrip("@").strip()
+    if not handle:
+        return None
+    try:
+        response = await client.get(
+            f"https://substack.com/api/v1/user/{quote(handle)}/public_profile",
+            headers={
+                "Accept": "application/json",
+                "Origin": "https://substack.com",
+                "Referer": "https://substack.com/",
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        if not isinstance(data, dict):
+            return None
+        actual_handle = str(data.get("handle") or handle).lstrip("@")
+        name = _clean_text(str(data.get("name") or ""))
+        bio = _redact_contact(str(data.get("bio") or data.get("profile_set_up_at") or ""))
+        candidate = Candidate(
+            url=f"https://substack.com/@{actual_handle}",
+            platform="substack",
+            handle=actual_handle,
+            title=f"{name} | Substack" if name else f"@{actual_handle} | Substack",
+            description=bio,
+            outbound_links=_public_links_from_mapping(data),
+            provenance="substack_public_profile",
+        )
+        return candidate
+    except Exception:
+        return None
+
+
+async def _substack_people_search(
+    client: httpx.AsyncClient,
+    query: str,
+) -> tuple[list[Candidate], str | None]:
+    try:
+        response = await client.get(
+            "https://substack.com/api/v1/search/explore/web",
+            params={"query": query},
+            headers={
+                "Accept": "application/json",
+                "Origin": "https://substack.com",
+                "Referer": "https://substack.com/search",
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        return [], f"Substack public search unavailable: {type(exc).__name__}"
+
+    handles: list[str] = []
+    seen: set[str] = set()
+    for item in _walk_dicts(data):
+        raw_handle = item.get("handle")
+        if not isinstance(raw_handle, str):
+            continue
+        handle = raw_handle.lstrip("@").strip()
+        if not handle or handle in seen:
+            continue
+        # User/profile objects normally expose a person-like handle/name/photo/bio.
+        # Publication objects generally use a subdomain instead of a user handle.
+        personish = any(key in item for key in ("name", "photo_url", "bio", "profile_url"))
+        if personish:
+            seen.add(handle)
+            handles.append(handle)
+        if len(handles) >= 20:
+            break
+
+    candidates: list[Candidate] = []
+    for handle in handles:
+        candidate = await _substack_public_profile(client, handle)
+        if candidate:
+            candidate.provenance = "substack_search"
+            candidates.append(candidate)
+    return candidates, None
+
+
 async def _fetch_candidate(client: httpx.AsyncClient, candidate: Candidate) -> Candidate:
+    if candidate.platform == "substack":
+        public_profile = await _substack_public_profile(client, candidate.handle)
+        if public_profile:
+            candidate.title = public_profile.title or candidate.title
+            candidate.description = public_profile.description or candidate.description
+            candidate.outbound_links.update(public_profile.outbound_links)
+
     try:
         response = await client.get(candidate.url)
         response.raise_for_status()
@@ -475,6 +599,12 @@ async def collect_public_identity_discovery(
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8"},
         follow_redirects=True,
     ) as client:
+        # Direct public Substack handle resolution is cheap and useful even when
+        # the seed came from another platform.
+        substack_seed = await _substack_public_profile(client, seed_handle)
+        if substack_seed:
+            candidates.setdefault(substack_seed.url, substack_seed)
+
         queries = [
             f'"{seed_handle}"',
             f'"{seed_handle}" GitHub',
@@ -537,6 +667,34 @@ async def collect_public_identity_discovery(
         # A different handle can still be discoverable through stable public identity anchors.
         # Use names observed in the first pass, not guesses manufactured from the username.
         for name in sorted(names)[:3]:
+            substack_candidates, substack_warning = await _substack_people_search(client, name)
+            if substack_warning and substack_warning not in warnings:
+                warnings.append(substack_warning)
+            for candidate in substack_candidates:
+                existing = candidates.setdefault(candidate.url, candidate)
+                if not existing.title:
+                    existing.title = candidate.title
+                if not existing.description:
+                    existing.description = candidate.description
+                existing.outbound_links.update(candidate.outbound_links)
+                ev = Evidence(
+                    id=new_id("ev"),
+                    case_id=case_id,
+                    source="Substack public profile search",
+                    collector="substack-public-search",
+                    source_url=candidate.url,
+                    excerpt=_redact_contact(candidate.title),
+                    metadata={
+                        "query": name,
+                        "platform": "substack",
+                        "handle": candidate.handle,
+                    },
+                    reliability=0.72,
+                )
+                store.add_evidence(ev)
+                existing.evidence_ids.append(ev.id)
+                evidence_added += 1
+
             for query in (
                 f'site:substack.com/@ "{name}"',
                 f'"{name}" Substack',
