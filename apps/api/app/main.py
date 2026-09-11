@@ -21,8 +21,10 @@ from .models import (
     RunRequest,
     RunResponse,
     TargetType,
+    ToolImport,
 )
 from .store import Store
+from .tool_imports import import_tool_export
 
 app = FastAPI(
     title="VIGIL OSINT API",
@@ -56,24 +58,38 @@ def modules() -> list[dict]:
     return [
         {
             "id": "public-domain",
-            "name": "Public domain sources",
+            "name": "Certificate Transparency + RDAP + Wayback",
             "mode": "passive",
             "available": True,
-            "description": "Certificate Transparency, RDAP and Internet Archive.",
+            "description": "Built-in public domain intelligence.",
+        },
+        {
+            "id": "sherlock",
+            "name": "Sherlock",
+            "mode": "import",
+            "available": True,
+            "description": "CSV export normalization for public-account evidence.",
+        },
+        {
+            "id": "maigret",
+            "name": "Maigret",
+            "mode": "import",
+            "available": True,
+            "description": "JSON/NDJSON export normalization for public-account evidence.",
         },
         {
             "id": "public-observations",
-            "name": "Public account correlation",
+            "name": "Generic public observations",
             "mode": "import",
             "available": True,
-            "description": "Normalizes observations exported by external tools or collected manually.",
+            "description": "Normalized schema for outputs from other tools and manual research.",
         },
         {
             "id": "coordination",
             "name": "Coordinated behavior",
             "mode": "analysis",
             "available": True,
-            "description": "Finds synchronized identical public content while preserving uncertainty.",
+            "description": "Detects synchronized identical public content while preserving uncertainty.",
         },
         {
             "id": "impersonation",
@@ -81,6 +97,34 @@ def modules() -> list[dict]:
             "mode": "analysis",
             "available": True,
             "description": "Explainable multi-signal fake/impersonation assessment.",
+        },
+        {
+            "id": "spiderfoot",
+            "name": "SpiderFoot",
+            "mode": "adapter",
+            "available": False,
+            "description": "Planned normalized export adapter.",
+        },
+        {
+            "id": "maltego",
+            "name": "Maltego",
+            "mode": "graph",
+            "available": True,
+            "description": "GraphML export is compatible with graph-analysis workflows.",
+        },
+        {
+            "id": "opencti-misp",
+            "name": "OpenCTI / MISP",
+            "mode": "cti",
+            "available": False,
+            "description": "STIX/MISP adapters planned for threat-intelligence exchange.",
+        },
+        {
+            "id": "exiftool",
+            "name": "ExifTool",
+            "mode": "metadata",
+            "available": False,
+            "description": "Local-file metadata adapter planned.",
         },
         {
             "id": "graph-export",
@@ -162,6 +206,16 @@ def import_observations(case_id: str, payload: ObservationImport) -> dict:
         raise HTTPException(404, "Case not found")
     entities, evidence = import_public_observations(store, case_id, payload.observations)
     return {"entities_added": entities, "evidence_added": evidence}
+
+
+@app.post("/cases/{case_id}/tool-import")
+def tool_import(case_id: str, payload: ToolImport) -> dict:
+    if not store.get_case(case_id):
+        raise HTTPException(404, "Case not found")
+    try:
+        return import_tool_export(store, case_id, payload.tool, payload.content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/cases/{case_id}/posts")
