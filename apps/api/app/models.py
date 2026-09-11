@@ -116,6 +116,11 @@ class ObservationImport(BaseModel):
     observations: list[PublicObservation] = Field(min_length=1, max_length=500)
 
 
+class ToolImport(BaseModel):
+    tool: str = Field(pattern=r"^(sherlock_csv|maigret_json)$")
+    content: str = Field(min_length=1, max_length=5_000_000)
+
+
 class PublicPost(BaseModel):
     platform: str = Field(min_length=2, max_length=80)
     author_handle: str = Field(min_length=1, max_length=120)
