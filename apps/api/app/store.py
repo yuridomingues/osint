@@ -29,48 +29,140 @@ class Store:
         with self.connect() as db:
             db.executescript("""
             PRAGMA journal_mode=WAL;
+
             CREATE TABLE IF NOT EXISTS cases(
               id TEXT PRIMARY KEY, name TEXT NOT NULL, target TEXT NOT NULL,
               target_type TEXT NOT NULL, objective TEXT NOT NULL,
               created_at TEXT NOT NULL, status TEXT NOT NULL
             );
+
             CREATE TABLE IF NOT EXISTS entities(
               id TEXT PRIMARY KEY, case_id TEXT NOT NULL, kind TEXT NOT NULL,
               label TEXT NOT NULL, canonical_key TEXT NOT NULL,
               properties TEXT NOT NULL, confidence REAL NOT NULL,
               created_at TEXT NOT NULL, UNIQUE(case_id, canonical_key)
             );
+
             CREATE TABLE IF NOT EXISTS edges(
               id TEXT PRIMARY KEY, case_id TEXT NOT NULL, source_id TEXT NOT NULL,
               target_id TEXT NOT NULL, relation TEXT NOT NULL, confidence REAL NOT NULL,
               rationale TEXT NOT NULL, evidence_ids TEXT NOT NULL, created_at TEXT NOT NULL
             );
+
             CREATE TABLE IF NOT EXISTS evidence(
               id TEXT PRIMARY KEY, case_id TEXT NOT NULL, source TEXT NOT NULL,
               collector TEXT NOT NULL, source_url TEXT, excerpt TEXT NOT NULL,
               metadata TEXT NOT NULL, reliability REAL NOT NULL,
               content_hash TEXT, observed_at TEXT NOT NULL
             );
+
             CREATE TABLE IF NOT EXISTS findings(
               id TEXT PRIMARY KEY, case_id TEXT NOT NULL, category TEXT NOT NULL,
               severity TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
               confidence REAL NOT NULL, evidence_ids TEXT NOT NULL, created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS notes(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, body TEXT NOT NULL,
+              entity_ids TEXT NOT NULL, evidence_ids TEXT NOT NULL, tags TEXT NOT NULL,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hypotheses(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, title TEXT NOT NULL,
+              statement TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL,
+              entity_ids TEXT NOT NULL, evidence_ids TEXT NOT NULL,
+              counterpoints TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS timeline_events(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, title TEXT NOT NULL,
+              description TEXT NOT NULL, event_at TEXT NOT NULL, source_url TEXT,
+              entity_ids TEXT NOT NULL, evidence_ids TEXT NOT NULL,
+              category TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS geo_observations(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, label TEXT NOT NULL,
+              city TEXT NOT NULL, region TEXT NOT NULL, country TEXT NOT NULL,
+              latitude REAL NOT NULL, longitude REAL NOT NULL, source_url TEXT,
+              evidence_ids TEXT NOT NULL, entity_ids TEXT NOT NULL,
+              category TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS pins(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, object_type TEXT NOT NULL,
+              object_id TEXT NOT NULL, label TEXT NOT NULL, created_at TEXT NOT NULL,
+              UNIQUE(case_id, object_type, object_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS saved_views(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, name TEXT NOT NULL,
+              filters TEXT NOT NULL, layout TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS relation_reviews(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, edge_id TEXT NOT NULL,
+              state TEXT NOT NULL, comment TEXT NOT NULL,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              UNIQUE(case_id, edge_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS snapshots(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
+              payload TEXT NOT NULL, content_hash TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_log(
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL, action TEXT NOT NULL,
+              object_type TEXT NOT NULL, object_id TEXT, details TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_entities_case ON entities(case_id);
             CREATE INDEX IF NOT EXISTS idx_edges_case ON edges(case_id);
             CREATE INDEX IF NOT EXISTS idx_evidence_case ON evidence(case_id);
             CREATE INDEX IF NOT EXISTS idx_findings_case ON findings(case_id);
+            CREATE INDEX IF NOT EXISTS idx_notes_case ON notes(case_id);
+            CREATE INDEX IF NOT EXISTS idx_hypotheses_case ON hypotheses(case_id);
+            CREATE INDEX IF NOT EXISTS idx_timeline_case ON timeline_events(case_id);
+            CREATE INDEX IF NOT EXISTS idx_geo_case ON geo_observations(case_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_log(case_id);
             """)
 
             columns = {row["name"] for row in db.execute("PRAGMA table_info(evidence)")}
             if "content_hash" not in columns:
                 db.execute("ALTER TABLE evidence ADD COLUMN content_hash TEXT")
 
-            # Prevent repeated runs from creating visually duplicated relations.
             db.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_edge_relation "
                 "ON edges(case_id, source_id, target_id, relation)"
             )
+
+    def audit(
+        self,
+        case_id: str,
+        action: str,
+        object_type: str,
+        object_id: str | None = None,
+        details: dict | None = None,
+    ) -> str:
+        audit_id = new_id("audit")
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO audit_log(id,case_id,action,object_type,object_id,details,created_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    audit_id,
+                    case_id,
+                    action,
+                    object_type,
+                    object_id,
+                    json.dumps(details or {}, ensure_ascii=False),
+                    utc_now(),
+                ),
+            )
+        return audit_id
 
     def create_case(self, payload: CaseCreate) -> Case:
         case = Case(
@@ -86,6 +178,7 @@ class Store:
                 "INSERT INTO cases(id,name,target,target_type,objective,created_at,status) VALUES(?,?,?,?,?,?,?)",
                 (case.id, case.name, case.target, case.target_type.value, case.objective, case.created_at, case.status),
             )
+        self.audit(case.id, "case.created", "case", case.id, {"target_type": case.target_type.value})
         return case
 
     def list_cases(self) -> list[Case]:
@@ -145,6 +238,14 @@ class Store:
             )
         return item
 
+    def delete_edge(self, case_id: str, edge_id: str) -> bool:
+        with self.connect() as db:
+            cur = db.execute("DELETE FROM edges WHERE case_id=? AND id=?", (case_id, edge_id))
+        if cur.rowcount:
+            self.audit(case_id, "edge.deleted", "edge", edge_id)
+            return True
+        return False
+
     def add_evidence(self, item: Evidence) -> Evidence:
         with self.connect() as db:
             db.execute(
@@ -164,6 +265,14 @@ class Store:
                 ),
             )
         return item
+
+    def get_evidence(self, case_id: str, evidence_id: str) -> Evidence | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM evidence WHERE case_id=? AND id=?",
+                (case_id, evidence_id),
+            ).fetchone()
+        return self._evidence(row) if row else None
 
     def add_finding(self, item: Finding) -> Finding:
         with self.connect() as db:
