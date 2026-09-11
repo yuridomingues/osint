@@ -1,75 +1,132 @@
 # VIGIL OSINT Workbench
 
-VIGIL é uma workbench local-first para investigações OSINT defensivas e baseadas em fontes públicas. O objetivo é centralizar coleta, normalização, correlação, análise e evidências em um único case, com grafo explicável e proveniência.
+VIGIL is a local-first, provenance-first OSINT investigation workbench.
 
-> **Escopo:** fontes públicas, brand protection, CTI, verificação, pesquisa e investigações legítimas. O projeto não implementa invasão, credential stuffing, bypass de autenticação, doxxing, bancos de credenciais vazadas, engenharia social ofensiva, stalking ou automação de psyops/assédio.
+It centralizes public-source collection, tool imports, entity correlation, analyst reasoning and reporting into a single case. The architecture is intentionally closer to a professional investigation platform than to a folder of unrelated OSINT scripts.
 
-## Estado atual
+> VIGIL is designed for legitimate public-source research, brand protection, CTI, verification, misinformation analysis and authorized organizational investigations. It does not automate dossiers on private people, doxxing, credential collection, offensive social engineering or influence operations.
 
-### Funcional
+## Current product
 
-- **Cases** com alvo, objetivo, tipo e confirmação de escopo.
-- **Entity-link graph** interativo em Cytoscape.js.
-- **Evidence ledger** com fonte, coletor, horário, reliability e hash SHA-256 em imports.
-- **Correlação conservadora de contas públicas**: semelhança de username/nome isoladamente não vira identidade.
-- **Import direto do Sherlock** por CSV.
-- **Import direto do Maigret** por JSON/NDJSON.
-- **Schema genérico de observações públicas** para integrar outras ferramentas.
-- **Fake / impersonation scoring** multi-sinal e explicável.
-- **Coordinated-behavior analysis** em datasets de posts públicos, com janela temporal e ressalva explícita entre indicador e prova.
-- **OSINT passivo de domínio** por Certificate Transparency (crt.sh), RDAP e Internet Archive.
-- **Exports JSON e GraphML**.
-- **Docker Compose** para API + interface.
-- **CI** com testes da API e build do frontend.
+### Investigation workspace
 
-### Roadmap de adapters
+Each case includes:
 
-O VIGIL não reimplementa ferramentas maduras quando um adapter é melhor. As próximas integrações prioritárias são:
+- **Graph** — entity-link analysis with confidence and rationale.
+- **Evidence** — provenance ledger with source, collector, timestamp, reliability and hash.
+- **Findings** — assessments kept separate from raw observations.
+- **Timeline** — automatically generated evidence chronology plus analyst events.
+- **Map** — coarse/city-level public geospatial context.
+- **Analysis** — notes, hypotheses, confidence, status and counterpoints.
+- **Report builder** — pin exactly what belongs in the final report.
+- **Modules** — built-in collectors and normalized adapters.
+- **Audit** — investigation mutation trail.
 
-- SpiderFoot;
-- OWASP Amass e Subfinder para asset discovery passivo de organizações/domínios autorizados;
-- ExifTool para arquivos fornecidos ao case;
-- OpenCTI / STIX 2.1;
-- MISP;
-- urlscan.io;
-- VirusTotal;
-- Shodan / Censys para contexto de infraestrutura organizacional;
-- theHarvester em escopo organizacional.
+### Graph features
 
-Veja [docs/TOOLS.md](docs/TOOLS.md).
+- search;
+- entity-type filters;
+- confidence threshold;
+- force/circle/grid/concentric layouts;
+- hide rejected relationships;
+- relation review: confirmed / rejected / needs review;
+- multi-select;
+- non-destructive analyst clusters;
+- split/detach cluster members;
+- persistent saved views;
+- entity/edge pinning.
 
-## Arquitetura
+### Public-source collection
+
+Built in:
+
+- Certificate Transparency;
+- RDAP domain registration context;
+- Internet Archive / Wayback;
+- public IP allocation RDAP;
+- URL archive history.
+
+Imports/adapters:
+
+- Sherlock CSV;
+- Maigret JSON / NDJSON;
+- ProjectDiscovery Subfinder JSONL;
+- OWASP Amass JSON;
+- SpiderFoot infrastructure CSV;
+- generic VIGIL public-account observations;
+- public-post datasets for coordinated-behavior analysis.
+
+Subfinder/Amass/SpiderFoot adapters are limited to domain/organization cases. SpiderFoot imports deliberately skip person/contact event types.
+
+### Analysis
+
+- conservative account correlation;
+- shared-domain/media multi-signal edges;
+- explainable fake/impersonation scoring;
+- synchronized identical-content detection;
+- explicit distinction between indicator and attribution;
+- relation review state;
+- hypotheses and counter-hypotheses;
+- notes/tags;
+- snapshots;
+- evidence and mutation audit.
+
+### Reporting
+
+- full print-ready HTML report;
+- pinned-only curated HTML report;
+- Markdown;
+- evidence CSV;
+- JSON;
+- GraphML.
+
+The HTML report opens with a print flow so it can be saved as PDF without a server-side browser dependency.
+
+## Architecture
 
 ```text
-apps/web  -> React + Vite + Cytoscape
-    |
-    v
-apps/api  -> FastAPI
-    |
-    +-> SQLite evidence store
-    +-> passive public-source collectors
-    +-> normalization adapters
-    +-> correlation/scoring engine
-    +-> coordinated-behavior analysis
-    +-> JSON / GraphML export
+                     +--------------------------+
+                     | public sources / exports |
+                     +------------+-------------+
+                                  |
+                                  v
++----------------+      +---------+----------+
+| React / Vite   | <--> | FastAPI            |
+| Cytoscape      |      | normalization      |
+| React Leaflet  |      | correlation        |
++----------------+      | analysis            |
+                        +---------+----------+
+                                  |
+                    +-------------+-------------+
+                    |                           |
+                    v                           v
+             SQLite case store          adapter boundary
+             evidence + audit          external OSINT tools
 ```
 
-Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Read:
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Methodology](docs/METHODOLOGY.md)
+- [Tool strategy](docs/TOOLS.md)
+- [Import schemas](docs/IMPORT_SCHEMA.md)
+- [Case playbooks](docs/CASE_PLAYBOOKS.md)
+- [Feature matrix](docs/FEATURE_MATRIX.md)
 
 ## Quick start
-
-### Docker
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
+Then open:
+
 - UI: http://localhost:5173
 - API: http://localhost:8000
 - OpenAPI: http://localhost:8000/docs
 
-### Desenvolvimento
+### Development
 
 API:
 
@@ -89,85 +146,53 @@ npm install
 npm run dev
 ```
 
-Testes:
+Tests:
 
 ```bash
 make test
 ```
 
-## Fluxo de investigação
+## Typical workflow
 
-1. Crie um **case** e registre o objetivo.
-2. Para domínio/organização, execute a coleta passiva integrada.
-3. Para contas públicas, importe observações ou exports do Sherlock/Maigret.
-4. Para desinformação/operações de influência, importe um dataset de posts públicos e analise comportamento coordenado.
-5. Revise o **grafo**, sempre abrindo a entidade e sua confiança.
-6. Confira o **evidence ledger** antes de aceitar qualquer relação.
-7. Revise **findings** e hipóteses alternativas.
-8. Exporte JSON/GraphML para análise ou relatório.
+1. Create a case with a clear intelligence question.
+2. Run built-in public sources for a domain, URL or public IP.
+3. Import tool output when relevant.
+4. Review the graph instead of accepting correlations blindly.
+5. Mark relationships confirmed/rejected/needs-review.
+6. Build hypotheses and record counterpoints.
+7. Use the timeline and coarse map to add context.
+8. Snapshot important evidence.
+9. Pin the items that should appear in the final report.
+10. Export the full or curated report.
 
-## Princípio de correlação
+## Correlation policy
 
-O engine separa **observação** de **avaliação**.
+Weak indicators:
 
-Sinais fracos:
+- similar username;
+- similar display name;
+- similar biography text.
 
-- username parecido;
-- display name parecido;
-- texto de bio semelhante.
+Stronger indicators:
 
-Sinais mais fortes:
+- shared externally controlled domain;
+- reused public media hash;
+- multiple independent sources;
+- measurable temporal synchronization;
+- explicit infrastructure relationships in machine-readable source output.
 
-- domínio externo compartilhado;
-- mídia pública reutilizada;
-- evidências independentes convergentes;
-- relação observada em múltiplas fontes;
-- sincronização temporal mensurável em datasets públicos.
+A similar username alone never becomes an identity verdict.
 
-Uma relação de identidade não deve ser inferida apenas porque dois perfis têm nomes parecidos.
+## Scope
 
-## "Psyops" no VIGIL
+VIGIL is suitable for:
 
-O VIGIL não executa campanhas de influência. O módulo relacionado a esse tema é defensivo: procura **indicadores de comportamento coordenado**, como conteúdo público idêntico publicado por várias contas numa janela temporal curta.
-
-Isso pode ajudar em:
-
-- desinformação;
-- campanhas coordenadas;
-- sockpuppet/fake-account triage;
 - brand impersonation;
-- threat intelligence.
+- public-account verification;
+- CTI and defensive research;
+- misinformation/coordinated-behavior analysis;
+- public infrastructure research;
+- due diligence based on lawful public sources;
+- academic/journalistic verification workflows.
 
-Um cluster detectado é um **lead para revisão humana**, não prova de autoria comum, intenção maliciosa ou atribuição a um ator.
-
-## Estrutura
-
-```text
-apps/
-  api/
-    app/
-    tests/
-  web/
-    src/
-docs/
-  ARCHITECTURE.md
-  IMPORT_SCHEMA.md
-  METHODOLOGY.md
-  TOOLS.md
-.github/
-  workflows/
-```
-
-## Uso responsável
-
-O projeto foi desenhado para:
-
-- brand protection e impersonation;
-- investigação de contas públicas;
-- checagem de desinformação;
-- CTI e threat research;
-- segurança corporativa;
-- due diligence baseada em fontes públicas;
-- investigação acadêmica/jornalística responsável.
-
-Não use para vigiar pessoas privadas, localizar endereço residencial, coletar credenciais, perseguir indivíduos ou contornar controles de acesso.
+See [SECURITY.md](SECURITY.md) for the responsible-use policy.
