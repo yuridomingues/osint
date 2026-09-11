@@ -431,6 +431,7 @@ export default function App() {
                   />
                   <ImportPanel
                     caseId={workspace.graph.case.id}
+                    targetType={workspace.graph.case.target_type}
                     onDone={() => refreshWorkspace()}
                   />
                 </>
