@@ -306,7 +306,7 @@ def _import_amass(store: Store, case_id: str, content: str) -> dict:
 
 
 def _spiderfoot_kind(type_value: str, data: str) -> str | None:
-    value = type_value.casefold()
+    value = type_value.casefold().replace("_", " ").replace("-", " ")
     if "ip" in value and "address" in value:
         return "ip"
     if "url" in value:
