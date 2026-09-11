@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { Core, ElementDefinition } from "cytoscape";
 import {
-  CheckCircle2, Filter, GitMerge, Pin as PinIcon, RefreshCw,
+  BookmarkPlus, CheckCircle2, Filter, GitMerge, Pin as PinIcon, RefreshCw,
   Search, ShieldAlert, Split, X, XCircle
 } from "lucide-react";
 import { api, Edge, Entity, RelationReview, Workspace } from "../api";
@@ -41,6 +41,8 @@ export default function GraphCanvas({
   const [clusterName, setClusterName] = useState("");
   const [clusterRationale, setClusterRationale] = useState("");
   const [reviewComment, setReviewComment] = useState("");
+  const [viewName, setViewName] = useState("");
+  const [selectedViewId, setSelectedViewId] = useState("");
 
   const kinds = useMemo(
     () => Array.from(new Set(workspace.graph.entities.map((e) => e.kind))).sort(),
@@ -250,6 +252,31 @@ export default function GraphCanvas({
     onRefresh();
   }
 
+  async function saveCurrentView() {
+    const name = viewName.trim();
+    if (!name) return;
+    await api.saveView(caseId, {
+      name,
+      filters: { query, kind, minConfidence, hideRejected },
+      layout: { name: layout }
+    });
+    setViewName("");
+    onRefresh();
+  }
+
+  function loadSavedView(viewId: string) {
+    setSelectedViewId(viewId);
+    const view = workspace.saved_views.find((item) => item.id === viewId);
+    if (!view) return;
+    const filters = view.filters as Record<string, unknown>;
+    const savedLayout = view.layout as Record<string, unknown>;
+    if (typeof filters.query === "string") setQuery(filters.query);
+    if (typeof filters.kind === "string") setKind(filters.kind);
+    if (typeof filters.minConfidence === "number") setMinConfidence(filters.minConfidence);
+    if (typeof filters.hideRejected === "boolean") setHideRejected(filters.hideRejected);
+    if (typeof savedLayout.name === "string") setLayout(savedLayout.name);
+  }
+
   const selectedReview = selected?.type === "edge"
     ? reviewFor(workspace.relation_reviews, selected.item.id)
     : undefined;
@@ -297,6 +324,26 @@ export default function GraphCanvas({
         <label className="check-inline">
           <input type="checkbox" checked={hideRejected} onChange={(e) => setHideRejected(e.target.checked)} />
           hide rejected
+        </label>
+
+        <label className="saved-view-select">
+          <select value={selectedViewId} onChange={(e) => loadSavedView(e.target.value)}>
+            <option value="">saved views</option>
+            {workspace.saved_views.map((view) => (
+              <option value={view.id} key={view.id}>{view.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="save-view-control">
+          <input
+            value={viewName}
+            onChange={(e) => setViewName(e.target.value)}
+            placeholder="nome da view"
+          />
+          <button className="ghost small" onClick={saveCurrentView} disabled={!viewName.trim()}>
+            <BookmarkPlus size={13} /> save
+          </button>
         </label>
       </div>
 
