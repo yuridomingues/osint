@@ -201,35 +201,86 @@ function NewCaseModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   );
 }
 
+type ImportMode = "normalized" | "sherlock_csv" | "maigret_json" | "posts";
+
+const importSamples: Record<ImportMode, string> = {
+  normalized: "[\\n  {\\n    \\"platform\\": \\"github\\",\\n    \\"handle\\": \\"example\\",\\n    \\"profile_url\\": \\"https://github.com/example\\",\\n    \\"display_name\\": \\"Example\\",\\n    \\"bio\\": \\"Public profile observation\\",\\n    \\"external_urls\\": [\\"https://example.org\\"],\\n    \\"media_hashes\\": []\\n  }\\n]",
+  sherlock_csv: "username,name,url_main,url_user,exists,http_status,response_time_s\\nexample,GitHub,https://github.com,https://github.com/example,Claimed,200,0.31",
+  maigret_json: "{\\n  \\"GitHub\\": {\\n    \\"username\\": \\"example\\",\\n    \\"url_user\\": \\"https://github.com/example\\",\\n    \\"status\\": \\"Claimed\\"\\n  }\\n}",
+  posts: "[\\n  {\\n    \\"platform\\": \\"example-platform\\",\\n    \\"author_handle\\": \\"account_a\\",\\n    \\"url\\": \\"https://example.org/post/1\\",\\n    \\"text\\": \\"Public post content\\",\\n    \\"published_at\\": \\"2026-09-11T12:00:00Z\\"\\n  }\\n]"
+};
+
 function ImportPanel({ caseId, onDone }: { caseId: string; onDone: () => void }) {
-  const sample = "[\n  {\n    \"platform\": \"github\",\n    \"handle\": \"example\",\n    \"profile_url\": \"https://github.com/example\",\n    \"display_name\": \"Example\",\n    \"bio\": \"Public profile observation\",\n    \"external_urls\": [\"https://example.org\"],\n    \"media_hashes\": []\n  }\n]";
-  const [value, setValue] = useState(sample);
+  const [mode, setMode] = useState<ImportMode>("normalized");
+  const [value, setValue] = useState(importSamples.normalized);
   const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(false);
+
+  function changeMode(next: ImportMode) {
+    setMode(next);
+    setValue(importSamples[next]);
+    setMessage("");
+  }
 
   async function send() {
     setMessage("");
+    setWorking(true);
     try {
-      const parsed = JSON.parse(value);
-      if (!Array.isArray(parsed)) throw new Error("Use um array JSON");
-      const result = await api.importObservations(caseId, parsed) as {entities_added:number;evidence_added:number};
-      setMessage(result.entities_added + " entidades · " + result.evidence_added + " evidências importadas");
+      let result: Record<string, unknown>;
+
+      if (mode === "sherlock_csv" || mode === "maigret_json") {
+        result = await api.importTool(caseId, mode, value) as Record<string, unknown>;
+      } else {
+        const parsed = JSON.parse(value);
+        if (!Array.isArray(parsed)) throw new Error("Use um array JSON");
+        result = mode === "posts"
+          ? await api.importPosts(caseId, parsed) as Record<string, unknown>
+          : await api.importObservations(caseId, parsed) as Record<string, unknown>;
+      }
+
+      const parts = [
+        result.records_parsed !== undefined ? String(result.records_parsed) + " registros" : null,
+        result.entities_added !== undefined ? String(result.entities_added) + " entidades" : null,
+        result.evidence_added !== undefined ? String(result.evidence_added) + " evidências" : null,
+        result.findings_added !== undefined ? String(result.findings_added) + " findings" : null
+      ].filter(Boolean);
+
+      setMessage(parts.join(" · ") || "Importação concluída.");
       onDone();
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "JSON inválido");
+      setMessage(e instanceof Error ? e.message : "Não foi possível importar");
+    } finally {
+      setWorking(false);
     }
   }
+
+  const description = mode === "posts"
+    ? "Analisa datasets de posts públicos para detectar clusters de conteúdo idêntico sincronizado. O resultado é um indicador de coordenação, não atribuição de autoria."
+    : "Normaliza resultados públicos no mesmo modelo de evidência. Relações só são criadas quando existem sinais independentes além de semelhança de nome.";
 
   return (
     <section className="import-card">
       <div>
-        <span className="eyebrow">correlação de contas</span>
-        <h3>Importar observações públicas</h3>
-        <p>Normaliza evidências de ferramentas externas ou coleta manual sem perder proveniência. URLs e hashes compartilhados viram relações explicáveis no grafo.</p>
+        <span className="eyebrow">ingestão & correlação</span>
+        <h3>Adicionar evidências ao case</h3>
+        <p>{description}</p>
+        <label className="import-mode">
+          <span>formato</span>
+          <select value={mode} onChange={(e) => changeMode(e.target.value as ImportMode)}>
+            <option value="normalized">VIGIL · observações normalizadas</option>
+            <option value="sherlock_csv">Sherlock · CSV</option>
+            <option value="maigret_json">Maigret · JSON / NDJSON</option>
+            <option value="posts">Posts públicos · coordenação</option>
+          </select>
+        </label>
       </div>
       <textarea value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} />
       <div className="import-actions">
         <span>{message}</span>
-        <button className="secondary" onClick={send}><Upload size={15}/> importar</button>
+        <button className="secondary" onClick={send} disabled={working}>
+          {working ? <RefreshCw className="spin" size={15}/> : <Upload size={15}/>}
+          {working ? "importando" : "importar"}
+        </button>
       </div>
     </section>
   );
