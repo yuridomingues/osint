@@ -622,6 +622,137 @@ async def _fetch_candidate(client: httpx.AsyncClient, candidate: Candidate) -> C
     return candidate
 
 
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": USER_AGENT,
+    }
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def _github_profile(
+    client: httpx.AsyncClient,
+    handle: str,
+) -> Candidate | None:
+    handle = handle.strip().lstrip("@")
+    if not handle or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", handle):
+        return None
+    try:
+        response = await client.get(
+            f"https://api.github.com/users/{quote(handle)}",
+            headers=_github_headers(),
+        )
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        if not isinstance(data, dict) or data.get("type") != "User":
+            return None
+
+        login = str(data.get("login") or handle)
+        name = _clean_text(str(data.get("name") or ""))
+        bio = _redact_contact(str(data.get("bio") or ""))
+        outbound: set[str] = set()
+
+        blog = str(data.get("blog") or "").strip()
+        if blog:
+            if not blog.startswith(("http://", "https://")):
+                blog = "https://" + blog
+            safe = _safe_outbound(blog)
+            if safe:
+                outbound.add(safe)
+
+        twitter = str(data.get("twitter_username") or "").strip().lstrip("@")
+        if twitter:
+            outbound.add(f"https://x.com/{twitter}")
+
+        return Candidate(
+            url=f"https://github.com/{login}",
+            platform="github",
+            handle=login,
+            title=f"{name} - GitHub" if name else f"{login} - GitHub",
+            description=bio,
+            outbound_links=outbound,
+            provenance="github_public_api",
+        )
+    except Exception:
+        return None
+
+
+async def _github_people_search(
+    client: httpx.AsyncClient,
+    name: str,
+) -> tuple[list[Candidate], str | None]:
+    name = _clean_text(name)
+    if len(name) < 3:
+        return [], None
+
+    queries = [
+        f'"{name}" in:name',
+        name,
+    ]
+    logins: list[str] = []
+    seen: set[str] = set()
+
+    for query in queries:
+        try:
+            response = await client.get(
+                "https://api.github.com/search/users",
+                params={"q": query, "per_page": 10},
+                headers=_github_headers(),
+            )
+            if response.status_code == 403:
+                return [], "GitHub public search rate limit reached."
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get("items", []):
+                login = str(item.get("login") or "")
+                if login and login.casefold() not in seen:
+                    seen.add(login.casefold())
+                    logins.append(login)
+            if logins:
+                break
+        except Exception as exc:
+            return [], f"GitHub public search unavailable: {type(exc).__name__}"
+
+    candidates: list[Candidate] = []
+    for login in logins[:10]:
+        candidate = await _github_profile(client, login)
+        if not candidate:
+            continue
+        candidate_name = _candidate_name(candidate.title, candidate.handle)
+        if _name_similarity(candidate_name, name) >= 0.72:
+            candidates.append(candidate)
+    return candidates, None
+
+
+def _name_handle_variants(name: str, seed_handle: str) -> list[str]:
+    tokens = re.findall(r"[a-z0-9]+", _clean_text(name).casefold())
+    variants: list[str] = [seed_handle.strip().lstrip("@")]
+    if len(tokens) >= 2:
+        first, last = tokens[0], tokens[-1]
+        variants.extend(
+            [
+                first + last,
+                last + first,
+                f"{first}-{last}",
+                f"{first}_{last}",
+                f"{first}.{last}",
+            ]
+        )
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in variants:
+        key = value.casefold()
+        if value and key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result[:8]
+
+
 async def _github_history_links(
     client: httpx.AsyncClient,
     handle: str,
@@ -629,10 +760,7 @@ async def _github_history_links(
     warnings: list[str] = []
     results: list[tuple[str, str]] = []
     repo = f"{handle}/{handle}"
-    headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
-    token = os.getenv("GITHUB_TOKEN", "").strip()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    headers = _github_headers()
 
     try:
         response = await client.get(
