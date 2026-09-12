@@ -1090,9 +1090,9 @@ async def collect_public_identity_discovery(
                     },
                     reliability=0.72,
                 )
-                store.add_evidence(ev)
-                existing.evidence_ids.append(ev.id)
-                evidence_added += 1
+                evidence_id = add_evidence_once(ev)
+                if evidence_id not in existing.evidence_ids:
+                    existing.evidence_ids.append(evidence_id)
 
             for query in (
                 f'site:substack.com/@ "{name}"',
@@ -1144,21 +1144,15 @@ async def collect_public_identity_discovery(
                             },
                             reliability=0.55,
                         )
-                        store.add_evidence(ev)
-                        candidate.evidence_ids.append(ev.id)
-                        evidence_added += 1
+                        evidence_id = add_evidence_once(ev)
+                        if evidence_id not in candidate.evidence_ids:
+                            candidate.evidence_ids.append(evidence_id)
 
         # Resolve candidate metadata and explicit outbound profile links.
         for candidate in list(candidates.values())[:40]:
             await _fetch_candidate(client, candidate)
             possible_name = _candidate_name(candidate.title, candidate.handle)
-            is_seed_profile = bool(seed_url and candidate.url == seed_url)
-            is_seed_platform_match = bool(
-                seed_platform
-                and candidate.platform == seed_platform
-                and _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
-            )
-            if possible_name and (is_seed_profile or is_seed_platform_match or not seed_url):
+            if possible_name and candidate.url in seed_anchor_urls:
                 names.add(possible_name)
 
         # Seed anchors come from the supplied profile URL or the strongest exact-handle
