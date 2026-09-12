@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Boxes, CalendarClock, ChevronRight, CircleDot,
-  Database, FileSearch, FileText, Globe2, Lightbulb, ListChecks, Map,
+  Database, FileSearch, FileText, Globe2, Image as ImageIcon, Lightbulb, ListChecks, Map,
   Network, Play, Plus, RefreshCw, Search, ShieldCheck, X
 } from "lucide-react";
 import { api, Case, ModuleInfo, TargetType, Workspace } from "./api";
@@ -9,6 +9,7 @@ import AnalysisPanel from "./components/AnalysisPanel";
 import EvidencePanel from "./components/EvidencePanel";
 import GraphCanvas from "./components/GraphCanvas";
 import ImportPanel from "./components/ImportPanel";
+import ImagePanel from "./components/ImagePanel";
 import MapPanel from "./components/MapPanel";
 import ModulesPanel from "./components/ModulesPanel";
 import ReportPanel from "./components/ReportPanel";
@@ -17,6 +18,7 @@ import TimelinePanel from "./components/TimelinePanel";
 type Tab =
   | "graph"
   | "evidence"
+  | "image"
   | "findings"
   | "timeline"
   | "map"
@@ -306,6 +308,7 @@ export default function App() {
   const tabs: Array<[Tab, string, React.ComponentType<{ size?: number }>]> = [
     ["graph", "Graph", Network],
     ["evidence", "Evidence", Database],
+    ["image", "Image", ImageIcon],
     ["findings", "Findings", FileSearch],
     ["timeline", "Timeline", CalendarClock],
     ["map", "Map", Map],
@@ -443,6 +446,14 @@ export default function App() {
                   evidence={workspace.graph.evidence}
                   pins={workspace.pins}
                   snapshots={workspace.snapshots}
+                  onRefresh={() => refreshWorkspace()}
+                />
+              )}
+
+              {tab === "image" && (
+                <ImagePanel
+                  caseId={workspace.graph.case.id}
+                  workspace={workspace}
                   onRefresh={() => refreshWorkspace()}
                 />
               )}
