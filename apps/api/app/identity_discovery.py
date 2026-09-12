@@ -415,6 +415,10 @@ def score_candidate(
         strong_signal = True
         reasons.append("candidate shares an external public domain with an observed profile")
 
+    if candidate.provenance == "name-variant-probe":
+        score += 0.25
+        reasons.append("public profile handle is a deterministic variant of the observed public name")
+
     if candidate.provenance == "github_history":
         score += 0.60
         strong_signal = True
@@ -454,7 +458,8 @@ async def _web_search(client: httpx.AsyncClient, query: str) -> tuple[list[Searc
 
     try:
         response = await client.get("https://html.duckduckgo.com/html/", params={"q": query})
-        response.raise_for_status()
+        if response.status_code != 200:
+            return [], f"DuckDuckGo fallback returned HTTP {response.status_code}"
         parser = DuckDuckGoParser()
         parser.feed(response.text)
         return parser.hits[:10], None
@@ -836,7 +841,7 @@ async def _github_history_links(
     try:
         response = await client.get(
             f"https://api.github.com/repos/{quote(handle)}/{quote(handle)}/commits",
-            params={"per_page": 30},
+            params={"path": "README.md", "per_page": 60},
             headers=headers,
         )
         if response.status_code == 404:
@@ -847,7 +852,7 @@ async def _github_history_links(
         return [], [f"GitHub history unavailable for {repo}: {type(exc).__name__}"]
 
     seen: set[str] = set()
-    for commit in commits[:20]:
+    for commit in commits[:40]:
         sha = commit.get("sha")
         if not sha:
             continue
