@@ -1,4 +1,6 @@
-export const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+export const API = import.meta.env.VITE_API_BASE_URL || (window.location.hostname.endsWith("vercel.app")
+  ? "https://vigil-osint-api.vercel.app"
+  : "http://localhost:8000");
 
 export type TargetType = "domain" | "organization" | "public_account" | "url" | "ip";
 export type HypothesisStatus = "open" | "supported" | "rejected" | "inconclusive";
