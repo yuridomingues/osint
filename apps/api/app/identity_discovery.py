@@ -32,6 +32,16 @@ PLATFORM_HOSTS: dict[str, tuple[str, ...]] = {
 }
 
 SAFE_PROFILE_HOSTS = {host for hosts in PLATFORM_HOSTS.values() for host in hosts}
+IDENTITY_HUB_HOSTS = {
+    "linktr.ee": "linktree",
+    "www.linktr.ee": "linktree",
+    "about.me": "aboutme",
+    "www.about.me": "aboutme",
+    "bio.site": "biosite",
+    "www.bio.site": "biosite",
+    "beacons.ai": "beacons",
+    "www.beacons.ai": "beacons",
+}
 RESERVED_PROFILE_PATHS: dict[str, set[str]] = {
     "instagram": {"p", "reel", "reels", "stories", "explore", "accounts", "direct", "about"},
     "x": {"home", "explore", "search", "i", "intent", "share", "hashtag", "settings"},
@@ -265,6 +275,66 @@ def _name_similarity(left: str, right: str) -> float:
     ta, tb = set(re.findall(r"[a-zà-ÿ0-9]+", a)), set(re.findall(r"[a-zà-ÿ0-9]+", b))
     jaccard = len(ta & tb) / max(1, len(ta | tb))
     return max(seq, jaccard)
+
+
+def _hub_name(title: str) -> str:
+    text = _clean_text(title)
+    for suffix in (
+        " | Linktree",
+        " | linktree",
+        " - Linktree",
+        " | about.me",
+        " | Bio Site",
+        " | Beacons",
+    ):
+        if suffix in text:
+            text = text.split(suffix, 1)[0]
+    return text.strip(" -|•·")
+
+
+def _profile_urls_from_html(raw_html: str, links: set[str]) -> set[str]:
+    discovered: set[str] = set()
+    for value in list(links) + URL_RE.findall(html.unescape(raw_html)):
+        cleaned = value.rstrip(".,;\\\"'")
+        canonical = _canonical_profile(cleaned)
+        if canonical:
+            discovered.add(canonical)
+    return discovered
+
+
+async def _probe_identity_hub(
+    client: httpx.AsyncClient,
+    url: str,
+    expected_names: set[str],
+    seed_anchor_urls: set[str],
+) -> tuple[str, set[str], str, str] | None:
+    try:
+        response = await client.get(url)
+        if response.status_code != 200:
+            return None
+        final_host = (response.url.host or "").casefold()
+        if final_host not in IDENTITY_HUB_HOSTS:
+            return None
+
+        parser = PublicPageParser()
+        raw = response.text[:2_000_000]
+        parser.feed(raw)
+        title = parser.og_title or _clean_text("".join(parser.title))
+        description = _redact_contact(parser.description)
+        hub_name = _hub_name(title)
+
+        name_match = max((_name_similarity(hub_name, name) for name in expected_names), default=0.0)
+        profiles = _profile_urls_from_html(raw, parser.links)
+        anchored = bool(profiles & seed_anchor_urls)
+
+        # A hub must either link back to the known seed or strongly match the observed
+        # public name. Merely existing at a guessed slug is not sufficient.
+        if not anchored and name_match < 0.90:
+            return None
+
+        return str(response.url), profiles, title, description
+    except Exception:
+        return None
 
 
 def _safe_outbound(url: str) -> str | None:
