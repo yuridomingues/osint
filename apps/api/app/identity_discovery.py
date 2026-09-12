@@ -32,6 +32,15 @@ PLATFORM_HOSTS: dict[str, tuple[str, ...]] = {
 }
 
 SAFE_PROFILE_HOSTS = {host for hosts in PLATFORM_HOSTS.values() for host in hosts}
+RESERVED_PROFILE_PATHS: dict[str, set[str]] = {
+    "instagram": {"p", "reel", "reels", "stories", "explore", "accounts", "direct", "about"},
+    "x": {"home", "explore", "search", "i", "intent", "share", "hashtag", "settings"},
+    "github": {"features", "topics", "collections", "events", "sponsors", "settings", "login", "signup", "search"},
+    "linkedin": {"posts", "feed", "jobs", "company", "school", "learning", "pulse"},
+    "substack": {"home", "search", "browse", "inbox", "settings", "publish"},
+    "youtube": {"watch", "shorts", "playlist", "results", "feed"},
+    "tiktok": {"discover", "tag", "music", "login"},
+}
 CONTACT_RE = re.compile(
     r"(?i)(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{7,}\d)"
 )
@@ -176,14 +185,32 @@ def _profile_handle(url: str, platform: str) -> str:
     parts = [unquote(x) for x in parsed.path.split("/") if x]
     if not parts:
         return ""
-    if platform == "substack" and parts[0].startswith("@"):
+
+    first = parts[0].casefold()
+    if first in RESERVED_PROFILE_PATHS.get(platform, set()):
+        return ""
+
+    if platform == "substack":
+        if not parts[0].startswith("@"):
+            return ""
         return parts[0][1:]
-    if platform == "linkedin" and len(parts) >= 2 and parts[0] == "in":
+    if platform == "linkedin":
+        if len(parts) < 2 or first != "in":
+            return ""
         return parts[1]
     if platform == "github":
         return parts[0]
-    if platform == "youtube" and parts[0].startswith("@"):
+    if platform == "youtube":
+        if not parts[0].startswith("@"):
+            return ""
         return parts[0][1:]
+    if platform == "instagram":
+        # /p/<id>, /reel/<id>, /stories/... are content URLs, never profiles.
+        return parts[0].lstrip("@")
+    if platform == "x":
+        # /user/status/<id> is a content URL; canonicalize to the profile only when
+        # the first segment is a genuine handle.
+        return parts[0].lstrip("@")
     return parts[0].lstrip("@")
 
 
