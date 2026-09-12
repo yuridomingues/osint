@@ -294,7 +294,8 @@ def _hub_name(title: str) -> str:
 
 def _profile_urls_from_html(raw_html: str, links: set[str]) -> set[str]:
     discovered: set[str] = set()
-    for value in list(links) + URL_RE.findall(html.unescape(raw_html)):
+    normalized_html = html.unescape(raw_html).replace("\\/", "/")
+    for value in list(links) + URL_RE.findall(normalized_html):
         cleaned = value.rstrip(".,;\\\"'")
         canonical = _canonical_profile(cleaned)
         if canonical:
@@ -307,7 +308,7 @@ async def _probe_identity_hub(
     url: str,
     expected_names: set[str],
     seed_anchor_urls: set[str],
-) -> tuple[str, set[str], str, str] | None:
+) -> tuple[str, set[str], str, str, bool] | None:
     try:
         response = await client.get(url)
         if response.status_code != 200:
@@ -332,7 +333,7 @@ async def _probe_identity_hub(
         if not anchored and name_match < 0.90:
             return None
 
-        return str(response.url), profiles, title, description
+        return str(response.url), profiles, title, description, anchored
     except Exception:
         return None
 
