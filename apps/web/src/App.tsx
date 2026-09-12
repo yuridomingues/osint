@@ -94,19 +94,19 @@ function NewCaseModal({
       <form className="modal case-modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <span className="eyebrow">new investigation</span>
-            <h2>Defina o alvo e a pergunta</h2>
+            <span className="eyebrow">nova investigação</span>
+            <h2>O que você quer descobrir?</h2>
           </div>
           <button type="button" className="icon-button" onClick={onClose}><X size={18} /></button>
         </div>
 
         <label>
-          Target
+          Alvo público
           <input
             autoFocus
             value={target}
             onChange={(e) => updateTarget(e.target.value)}
-            placeholder="example.org, https://..., IP ou @conta-publica"
+            placeholder="@perfil, URL pública, domínio ou IP"
           />
         </label>
 
@@ -143,7 +143,7 @@ function NewCaseModal({
         </label>
 
         <label>
-          Objective / intelligence question
+          O que você quer descobrir?
           <textarea
             rows={3}
             value={objective}
@@ -167,7 +167,7 @@ function NewCaseModal({
         {error && <div className="form-error"><AlertTriangle size={15} />{error}</div>}
 
         <button className="primary wide" disabled={!name || !target || !ack || saving}>
-          {saving ? "criando…" : "criar investigation"} <ChevronRight size={17} />
+          {saving ? "criando…" : "criar investigação"} <ChevronRight size={17} />
         </button>
       </form>
     </div>
@@ -380,10 +380,10 @@ export default function App() {
         </div>
 
         <button className="primary new-button" onClick={() => setNewCase(true)}>
-          <Plus size={16} /> new investigation
+          <Plus size={16} /> nova investigação
         </button>
 
-        <div className="sidebar-label">cases</div>
+        <div className="sidebar-label">investigações</div>
         <div className="case-list">
           {cases.map((item) => (
             <button
@@ -407,7 +407,7 @@ export default function App() {
 
         <div className="sidebar-foot">
           <ShieldCheck size={15} />
-          <span>public-source · provenance-first</span>
+          <span>fontes públicas · evidência primeiro</span>
         </div>
       </aside>
 
@@ -425,14 +425,14 @@ export default function App() {
         {!workspace ? (
           <div className="empty-state">
             <div className="radar"><span /><span /><span /><i /></div>
-            <span className="eyebrow">investigation workspace</span>
-            <h1>Do selector ao relatório.<br />Tudo no mesmo case.</h1>
+            <span className="eyebrow">investigação em fontes públicas</span>
+            <h1>Investigue sem precisar<br />virar especialista em OSINT.</h1>
             <p>
               Comece com um perfil, site, organização, URL ou IP. O VIGIL escolhe as fontes adequadas,
               explica o que encontrou e mantém cada conclusão ligada à evidência.
             </p>
             <button className="primary" onClick={() => setNewCase(true)}>
-              <Plus size={16} /> criar investigation
+              <Plus size={16} /> criar investigação
             </button>
           </div>
         ) : (
@@ -440,7 +440,7 @@ export default function App() {
             <header className="topbar">
               <div className="title-block">
                 <div className="breadcrumbs">
-                  <span>cases</span><ChevronRight size={13} /><span>{currentCase?.target_type}</span>
+                  <span>investigações</span><ChevronRight size={13} /><span>{currentCase?.target_type}</span>
                 </div>
                 <h1>{currentCase?.name}</h1>
                 <div className="target-line">
@@ -452,11 +452,11 @@ export default function App() {
 
               <div className="top-actions">
                 <button className="ghost" onClick={() => refreshWorkspace()}>
-                  <RefreshCw size={14} /> refresh
+                  <RefreshCw size={14} /> atualizar
                 </button>
                 <button className="primary" onClick={run} disabled={running}>
                   {running ? <RefreshCw className="spin" size={15} /> : <Play size={15} />}
-                  {running ? "collecting" : "run public sources"}
+                  {running ? "investigando" : "investigar"}
                 </button>
               </div>
             </header>
