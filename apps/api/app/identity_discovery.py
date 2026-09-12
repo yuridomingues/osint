@@ -839,6 +839,8 @@ async def collect_public_identity_discovery(
     anchor_texts: set[str] = set()
     known_external_hosts: set[str] = set()
     candidates: dict[str, Candidate] = {}
+    seed_anchor_urls: set[str] = {seed_url} if seed_url else set()
+    seen_search_evidence: set[tuple[str, str, str]] = set()
     if seed_url and seed_platform:
         candidates[seed_url] = Candidate(
             url=seed_url,
@@ -889,44 +891,73 @@ async def collect_public_identity_discovery(
                 )
                 if not candidate.title:
                     candidate.title = hit.title
+                if hit.snippet and len(_redact_contact(hit.snippet)) > len(candidate.description):
+                    candidate.description = _redact_contact(hit.snippet)
+
                 possible_name = _candidate_name(hit.title, handle)
+                exact_seed_handle = _normalize_handle(handle) == _normalize_handle(seed_handle)
                 is_seed_profile = bool(seed_url and canonical == seed_url)
                 is_seed_platform_match = bool(
                     seed_platform
                     and platform == seed_platform
-                    and _normalize_handle(handle) == _normalize_handle(seed_handle)
+                    and exact_seed_handle
                 )
-                if possible_name and (is_seed_profile or is_seed_platform_match or not seed_url):
+                if possible_name and (is_seed_profile or is_seed_platform_match or exact_seed_handle):
                     names.add(possible_name)
 
-                ev = Evidence(
-                    id=new_id("ev"),
-                    case_id=case_id,
-                    source="Web search",
-                    collector="identity-discovery-search",
-                    source_url=canonical,
-                    excerpt=_redact_contact(hit.title),
-                    metadata={
-                        "query": query,
-                        "platform": platform,
-                        "snippet": _redact_contact(hit.snippet)[:600],
-                    },
-                    reliability=0.55,
+                evidence_key = (
+                    canonical,
+                    _clean_text(hit.title).casefold(),
+                    _clean_text(hit.snippet).casefold(),
                 )
-                store.add_evidence(ev)
-                candidate.evidence_ids.append(ev.id)
-                evidence_added += 1
+                if evidence_key not in seen_search_evidence:
+                    seen_search_evidence.add(evidence_key)
+                    ev = Evidence(
+                        id=new_id("ev"),
+                        case_id=case_id,
+                        source="Web search",
+                        collector="identity-discovery-search",
+                        source_url=canonical,
+                        excerpt=_redact_contact(hit.title),
+                        metadata={
+                            "query": query,
+                            "platform": platform,
+                            "snippet": _redact_contact(hit.snippet)[:600],
+                        },
+                        reliability=0.55,
+                    )
+                    store.add_evidence(ev)
+                    candidate.evidence_ids.append(ev.id)
+                    evidence_added += 1
 
-        # Resolve the supplied seed before cross-handle pivots. If the platform exposes
-        # a public title/bio, this gives us a stable name or text anchor without guessing.
+        # If the user supplied only @handle (without platform), choose the strongest
+        # exact-handle public profile as the initial anchor. This is a collection anchor,
+        # not proof that every same-handle account belongs to the same person.
+        if not seed_anchor_urls:
+            exact_candidates = [
+                candidate
+                for candidate in candidates.values()
+                if _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
+                and _candidate_name(candidate.title, candidate.handle)
+            ]
+            if exact_candidates:
+                primary_seed = max(
+                    exact_candidates,
+                    key=lambda item: (
+                        len(item.description),
+                        len(item.title),
+                        len(item.evidence_ids),
+                    ),
+                )
+                seed_anchor_urls.add(primary_seed.url)
+                primary_name = _candidate_name(primary_seed.title, primary_seed.handle)
+                if primary_name:
+                    names.add(primary_name)
+
+        # Resolve the supplied/discovered seed before cross-handle pivots.
         for candidate in list(candidates.values()):
-            is_seed_profile = bool(seed_url and candidate.url == seed_url)
-            is_seed_platform_match = bool(
-                seed_platform
-                and candidate.platform == seed_platform
-                and _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
-            )
-            if not (is_seed_profile or is_seed_platform_match):
+            is_seed_profile = candidate.url in seed_anchor_urls
+            if not is_seed_profile:
                 continue
             await _fetch_candidate(client, candidate)
             possible_name = _candidate_name(candidate.title, candidate.handle)
@@ -936,6 +967,87 @@ async def collect_public_identity_discovery(
         # A different handle can still be discoverable through stable public identity anchors.
         # Use names observed from the supplied seed, not names manufactured from a username.
         for name in sorted(names)[:3]:
+            # First-party GitHub search is far more reliable than waiting for a web
+            # search engine to index the right profile.
+            github_people, github_warning = await _github_people_search(client, name)
+            if github_warning and github_warning not in warnings:
+                warnings.append(github_warning)
+            for github_candidate in github_people:
+                existing = candidates.setdefault(github_candidate.url, github_candidate)
+                if not existing.title:
+                    existing.title = github_candidate.title
+                if not existing.description:
+                    existing.description = github_candidate.description
+                existing.outbound_links.update(github_candidate.outbound_links)
+                ev = Evidence(
+                    id=new_id("ev"),
+                    case_id=case_id,
+                    source="GitHub public API",
+                    collector="github-public-profile-search",
+                    source_url=github_candidate.url,
+                    excerpt=github_candidate.title,
+                    metadata={
+                        "query": name,
+                        "platform": "github",
+                        "handle": github_candidate.handle,
+                        "bio": github_candidate.description[:500],
+                    },
+                    reliability=0.82,
+                )
+                store.add_evidence(ev)
+                existing.evidence_ids.append(ev.id)
+                evidence_added += 1
+
+            # Probe a small, explainable set of handle variants derived from the public
+            # display name. A candidate is kept only when the first-party profile itself
+            # matches the observed public name.
+            for variant in _name_handle_variants(name, seed_handle):
+                github_variant = await _github_profile(client, variant)
+                if github_variant:
+                    variant_name = _candidate_name(github_variant.title, github_variant.handle)
+                    if _name_similarity(variant_name, name) >= 0.90:
+                        existing = candidates.setdefault(github_variant.url, github_variant)
+                        existing.outbound_links.update(github_variant.outbound_links)
+
+                substack_variant = await _substack_public_profile(client, variant)
+                if not substack_variant:
+                    substack_variant = Candidate(
+                        url=f"https://substack.com/@{variant}",
+                        platform="substack",
+                        handle=variant,
+                        provenance="name-variant-probe",
+                    )
+                    await _fetch_candidate(client, substack_variant)
+
+                substack_name = _candidate_name(substack_variant.title, substack_variant.handle)
+                if _name_similarity(substack_name, name) >= 0.90:
+                    existing = candidates.setdefault(substack_variant.url, substack_variant)
+                    if not existing.title:
+                        existing.title = substack_variant.title
+                    if not existing.description:
+                        existing.description = substack_variant.description
+                    existing.outbound_links.update(substack_variant.outbound_links)
+                    if substack_variant.publications:
+                        existing.publications = substack_variant.publications
+                    if not existing.evidence_ids:
+                        ev = Evidence(
+                            id=new_id("ev"),
+                            case_id=case_id,
+                            source="Substack public profile",
+                            collector="substack-name-variant-probe",
+                            source_url=substack_variant.url,
+                            excerpt=substack_variant.title,
+                            metadata={
+                                "query": name,
+                                "handle": substack_variant.handle,
+                                "discovery": "public-name-derived variant",
+                            },
+                            reliability=0.72,
+                        )
+                        store.add_evidence(ev)
+                        existing.evidence_ids.append(ev.id)
+                        evidence_added += 1
+
             substack_candidates, substack_warning = await _substack_people_search(client, name)
             if substack_warning and substack_warning not in warnings:
                 warnings.append(substack_warning)
@@ -993,19 +1105,30 @@ async def collect_public_identity_discovery(
                     )
                     if not candidate.title:
                         candidate.title = hit.title
-                    ev = Evidence(
-                        id=new_id("ev"),
-                        case_id=case_id,
-                        source="Web search",
-                        collector="identity-discovery-name-pivot",
-                        source_url=canonical,
-                        excerpt=_redact_contact(hit.title),
-                        metadata={"query": query, "platform": platform},
-                        reliability=0.55,
+                    evidence_key = (
+                        canonical,
+                        _clean_text(hit.title).casefold(),
+                        _clean_text(hit.snippet).casefold(),
                     )
-                    store.add_evidence(ev)
-                    candidate.evidence_ids.append(ev.id)
-                    evidence_added += 1
+                    if evidence_key not in seen_search_evidence:
+                        seen_search_evidence.add(evidence_key)
+                        ev = Evidence(
+                            id=new_id("ev"),
+                            case_id=case_id,
+                            source="Web search",
+                            collector="identity-discovery-name-pivot",
+                            source_url=canonical,
+                            excerpt=_redact_contact(hit.title),
+                            metadata={
+                                "query": query,
+                                "platform": platform,
+                                "snippet": _redact_contact(hit.snippet)[:600],
+                            },
+                            reliability=0.55,
+                        )
+                        store.add_evidence(ev)
+                        candidate.evidence_ids.append(ev.id)
+                        evidence_added += 1
 
         # Resolve candidate metadata and explicit outbound profile links.
         for candidate in list(candidates.values())[:40]:
@@ -1020,16 +1143,10 @@ async def collect_public_identity_discovery(
             if possible_name and (is_seed_profile or is_seed_platform_match or not seed_url):
                 names.add(possible_name)
 
-        # Only the supplied seed profile is a trusted initial anchor. Reusing a username
-        # on another platform remains a weak lead until another public signal connects it.
+        # Seed anchors come from the supplied profile URL or the strongest exact-handle
+        # result when only @handle was supplied.
         for candidate in candidates.values():
-            is_seed_profile = bool(seed_url and candidate.url == seed_url)
-            is_seed_platform_match = bool(
-                seed_platform
-                and candidate.platform == seed_platform
-                and _normalize_handle(candidate.handle) == _normalize_handle(seed_handle)
-            )
-            if is_seed_profile or is_seed_platform_match:
+            if candidate.url in seed_anchor_urls:
                 known_profiles.add(candidate.url)
                 if len(candidate.description) >= 20:
                     anchor_texts.add(candidate.description)
@@ -1155,10 +1272,11 @@ async def collect_public_identity_discovery(
                     )
                 )
 
-        is_seed_profile = bool(seed_url and canonical == seed_url)
+        is_seed_profile = canonical in seed_anchor_urls
         is_confirmed_identity = score >= 0.45 and strong
+        is_plausible_candidate = score >= 0.25 and bool(reasons)
         if candidate.platform == "substack" and candidate.publications and (
-            is_seed_profile or is_confirmed_identity
+            is_seed_profile or is_confirmed_identity or is_plausible_candidate
         ):
             accepted_substack.append((entity, candidate, score, reasons))
 
