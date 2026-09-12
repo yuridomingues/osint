@@ -796,6 +796,150 @@ async def _public_platform_profile(
         return None
 
 
+def _extract_balanced_json(raw: str, marker: str) -> dict | None:
+    index = raw.find(marker)
+    if index < 0:
+        return None
+    start = raw.find("{", index + len(marker))
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for pos in range(start, len(raw)):
+        char = raw[pos]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    value = json.loads(raw[start : pos + 1])
+                    return value if isinstance(value, dict) else None
+                except json.JSONDecodeError:
+                    return None
+    return None
+
+
+def _youtube_search_candidates(raw: str) -> list[Candidate]:
+    data = _extract_balanced_json(raw, "ytInitialData")
+    if not data:
+        return []
+
+    result: list[Candidate] = []
+    seen: set[str] = set()
+    for item in _walk_dicts(data):
+        renderer = item.get("channelRenderer")
+        if not isinstance(renderer, dict):
+            continue
+
+        title_obj = renderer.get("title") or {}
+        title = ""
+        if isinstance(title_obj, dict):
+            title = _clean_text(str(title_obj.get("simpleText") or ""))
+            if not title:
+                runs = title_obj.get("runs")
+                if isinstance(runs, list) and runs and isinstance(runs[0], dict):
+                    title = _clean_text(str(runs[0].get("text") or ""))
+
+        endpoint = renderer.get("navigationEndpoint") or {}
+        browse = endpoint.get("browseEndpoint") if isinstance(endpoint, dict) else {}
+        canonical = browse.get("canonicalBaseUrl") if isinstance(browse, dict) else None
+        handle = ""
+        if isinstance(canonical, str) and canonical.startswith("/@"):
+            handle = canonical[2:]
+        if not handle:
+            vanity = renderer.get("vanityChannelUrl")
+            if isinstance(vanity, str) and "/@" in vanity:
+                handle = vanity.rsplit("/@", 1)[1].split("/", 1)[0]
+        if not handle:
+            continue
+
+        key = handle.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        description = ""
+        description_obj = renderer.get("descriptionSnippet")
+        if isinstance(description_obj, dict):
+            runs = description_obj.get("runs")
+            if isinstance(runs, list):
+                description = _clean_text(
+                    "".join(str(run.get("text") or "") for run in runs if isinstance(run, dict))
+                )
+
+        result.append(
+            Candidate(
+                url=f"https://www.youtube.com/@{handle}",
+                platform="youtube",
+                handle=handle,
+                title=f"{title} - YouTube" if title else f"@{handle} - YouTube",
+                description=_redact_contact(description),
+                provenance="youtube_public_search",
+            )
+        )
+    return result[:20]
+
+
+def _tiktok_search_candidates(raw: str) -> list[Candidate]:
+    payloads: list[dict] = []
+
+    for script_id in ("__UNIVERSAL_DATA_FOR_REHYDRATION__", "SIGI_STATE"):
+        pattern = re.compile(
+            rf'<script[^>]+id=["\\\']{re.escape(script_id)}["\\\'][^>]*>(.*?)</script>',
+            re.IGNORECASE | re.DOTALL,
+        )
+        match = pattern.search(raw)
+        if match:
+            try:
+                parsed = json.loads(html.unescape(match.group(1)))
+                if isinstance(parsed, dict):
+                    payloads.append(parsed)
+            except json.JSONDecodeError:
+                pass
+
+    result: list[Candidate] = []
+    seen: set[str] = set()
+    for payload in payloads:
+        for item in _walk_dicts(payload):
+            handle = item.get("uniqueId")
+            nickname = item.get("nickname")
+            if not isinstance(handle, str) or not handle.strip():
+                continue
+            if not isinstance(nickname, str) or not nickname.strip():
+                continue
+            key = handle.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            signature = item.get("signature")
+            description = _redact_contact(str(signature or ""))
+            result.append(
+                Candidate(
+                    url=f"https://www.tiktok.com/@{handle}",
+                    platform="tiktok",
+                    handle=handle,
+                    title=f"{_clean_text(nickname)} (@{handle}) | TikTok",
+                    description=description,
+                    provenance="tiktok_public_search",
+                )
+            )
+    return result[:20]
+
+
 def _extract_handles_from_search_html(platform: str, raw: str) -> list[str]:
     normalized = html.unescape(raw).replace("\\/", "/")
     if platform == "youtube":
@@ -844,21 +988,53 @@ async def _platform_people_search(
         )
         if response.status_code != 200:
             return [], f"{platform.title()} public search returned HTTP {response.status_code}"
-        handles = _extract_handles_from_search_html(platform, response.text[:3_000_000])
+        raw = response.text[:3_000_000]
     except Exception as exc:
         return [], f"{platform.title()} public search unavailable: {type(exc).__name__}"
 
+    embedded = (
+        _youtube_search_candidates(raw)
+        if platform == "youtube"
+        else _tiktok_search_candidates(raw)
+    )
+
     candidates: list[Candidate] = []
-    for handle in handles[:12]:
-        candidate = await _public_platform_profile(client, platform, handle)
-        if not candidate:
-            continue
+    seen: set[str] = set()
+
+    # Prefer structured platform search data. It remains useful even if the individual
+    # profile page later blocks automated requests.
+    for candidate in embedded:
         candidate_name = _candidate_name(candidate.title, candidate.handle)
         similarity = _name_similarity(candidate_name, name)
-        if similarity >= 0.72:
-            candidate.provenance = f"{platform}_public_search"
+        if similarity < 0.72:
+            continue
+        enriched = await _public_platform_profile(client, platform, candidate.handle)
+        if enriched:
+            if enriched.title:
+                candidate.title = enriched.title
+            if enriched.description:
+                candidate.description = enriched.description
+            candidate.outbound_links.update(enriched.outbound_links)
+        key = candidate.handle.casefold()
+        if key not in seen:
+            seen.add(key)
             candidates.append(candidate)
-    return candidates, None
+
+    # Fallback for layouts where structured data is unavailable.
+    if not candidates:
+        handles = _extract_handles_from_search_html(platform, raw)
+        for handle in handles[:12]:
+            candidate = await _public_platform_profile(client, platform, handle)
+            if not candidate:
+                continue
+            candidate_name = _candidate_name(candidate.title, candidate.handle)
+            similarity = _name_similarity(candidate_name, name)
+            if similarity >= 0.72 and candidate.handle.casefold() not in seen:
+                seen.add(candidate.handle.casefold())
+                candidate.provenance = f"{platform}_public_search"
+                candidates.append(candidate)
+
+    return candidates[:12], None
 
 
 async def _github_profile(
@@ -1128,12 +1304,15 @@ async def collect_public_identity_discovery(
                 if evidence_id not in existing.evidence_ids:
                     existing.evidence_ids.append(evidence_id)
 
-        queries = [
-            f'"{seed_handle}"',
-            f'"{seed_handle}" GitHub',
-            f'"{seed_handle}" Substack',
-            f'"{seed_handle}" Twitter OR X',
-        ]
+        queries = [f'"{seed_handle}"']
+        if os.getenv("BRAVE_SEARCH_API_KEY", "").strip():
+            queries.extend(
+                [
+                    f'"{seed_handle}" GitHub',
+                    f'"{seed_handle}" Substack',
+                    f'"{seed_handle}" Twitter OR X',
+                ]
+            )
 
         for query in queries:
             hits, warning = await _web_search(client, query)
@@ -1483,12 +1662,19 @@ async def collect_public_identity_discovery(
                 if evidence_id not in existing.evidence_ids:
                     existing.evidence_ids.append(evidence_id)
 
-            for query in (
-                f'site:substack.com/@ "{name}"',
-                f'"{name}" Substack',
-                f'"{name}" GitHub',
-                f'"{name}" "x.com"',
-            ):
+            name_queries = [f'"{name}"']
+            if os.getenv("BRAVE_SEARCH_API_KEY", "").strip():
+                name_queries.extend(
+                    [
+                        f'site:substack.com/@ "{name}"',
+                        f'"{name}" Substack',
+                        f'"{name}" GitHub',
+                        f'"{name}" "x.com"',
+                        f'"{name}" YouTube',
+                        f'"{name}" TikTok',
+                    ]
+                )
+            for query in name_queries:
                 hits, warning = await _web_search(client, query)
                 if warning and warning not in warnings:
                     warnings.append(warning)
