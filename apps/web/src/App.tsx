@@ -74,11 +74,15 @@ function NewCaseModal({
     setSaving(true);
     setError("");
     try {
+      const cleanTarget = target.trim();
+      const cleanName = name.trim().length >= 2
+        ? name.trim()
+        : `Investigação ${cleanTarget}`.slice(0, 120);
       const created = await api.createCase({
-        name,
-        target,
+        name: cleanName,
+        target: cleanTarget,
         target_type: targetType,
-        objective,
+        objective: objective.trim(),
         scope_acknowledged: ack
       });
       onCreated(created);
@@ -138,7 +142,7 @@ function NewCaseModal({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex.: Minha presença pública"
+            placeholder="Opcional — ex.: Minha presença pública"
           />
         </label>
 
@@ -166,7 +170,7 @@ function NewCaseModal({
 
         {error && <div className="form-error"><AlertTriangle size={15} />{error}</div>}
 
-        <button className="primary wide" disabled={!name || !target || !ack || saving}>
+        <button className="primary wide" disabled={!target.trim() || !ack || saving}>
           {saving ? "criando…" : "criar investigação"} <ChevronRight size={17} />
         </button>
       </form>
