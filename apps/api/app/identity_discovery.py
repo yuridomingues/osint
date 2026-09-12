@@ -256,6 +256,10 @@ def _candidate_name(title: str, handle: str) -> str:
         " on X",
         " | Substack",
         " - Substack",
+        " - YouTube",
+        " | YouTube",
+        " | TikTok",
+        " on TikTok",
     ):
         if suffix in text:
             text = text.split(suffix, 1)[0]
@@ -708,6 +712,153 @@ def _github_headers() -> dict[str, str]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def _valid_public_profile_page(platform: str, title: str, description: str, final_url: str) -> bool:
+    text = f"{title} {description} {final_url}".casefold()
+    if platform == "youtube":
+        if not title or title.casefold() in {"youtube", "youtube.com"}:
+            return False
+        if any(marker in text for marker in ("404 not found", "this page isn't available", "this page isn’t available")):
+            return False
+        return True
+    if platform == "tiktok":
+        if not title:
+            return False
+        if any(marker in text for marker in ("tiktok - make your day", "couldn't find this account", "couldn’t find this account")):
+            return False
+        return True
+    return bool(title)
+
+
+async def _public_platform_profile(
+    client: httpx.AsyncClient,
+    platform: str,
+    handle: str,
+) -> Candidate | None:
+    handle = handle.strip().lstrip("@")
+    if not handle or not re.fullmatch(r"[A-Za-z0-9._-]{2,64}", handle):
+        return None
+
+    if platform == "youtube":
+        url = f"https://www.youtube.com/@{quote(handle)}"
+    elif platform == "tiktok":
+        url = f"https://www.tiktok.com/@{quote(handle)}"
+    else:
+        return None
+
+    try:
+        response = await client.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
+            },
+        )
+        if response.status_code != 200:
+            return None
+
+        parser = PublicPageParser()
+        raw = response.text[:2_000_000]
+        parser.feed(raw)
+        title = parser.og_title or _clean_text("".join(parser.title))
+        description = _redact_contact(parser.description)
+
+        if not _valid_public_profile_page(platform, title, description, str(response.url)):
+            return None
+
+        # Both platforms often embed their own canonical handle in JSON/scripts.
+        canonical_handle = handle
+        if platform == "youtube":
+            found = re.search(r'"canonicalBaseUrl"\s*:\s*"/@([^"\\]+)"', raw)
+            if found:
+                canonical_handle = unquote(found.group(1))
+        elif platform == "tiktok":
+            found = re.search(r'"uniqueId"\s*:\s*"([^"\\]+)"', raw)
+            if found:
+                canonical_handle = unquote(found.group(1))
+
+        outbound = set(filter(None, (_safe_outbound(link) for link in parser.links)))
+        return Candidate(
+            url=(
+                f"https://www.youtube.com/@{canonical_handle}"
+                if platform == "youtube"
+                else f"https://www.tiktok.com/@{canonical_handle}"
+            ),
+            platform=platform,
+            handle=canonical_handle,
+            title=title,
+            description=description,
+            outbound_links=outbound,
+            provenance=f"{platform}_public_profile",
+        )
+    except Exception:
+        return None
+
+
+def _extract_handles_from_search_html(platform: str, raw: str) -> list[str]:
+    normalized = html.unescape(raw).replace("\\/", "/")
+    if platform == "youtube":
+        values = re.findall(r'(?:youtube\.com)?/@([A-Za-z0-9._-]{2,64})', normalized)
+    elif platform == "tiktok":
+        values = re.findall(r'(?:tiktok\.com)?/@([A-Za-z0-9._-]{2,64})', normalized)
+    else:
+        values = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = value.casefold()
+        if key in RESERVED_PROFILE_PATHS.get(platform, set()) or key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result[:20]
+
+
+async def _platform_people_search(
+    client: httpx.AsyncClient,
+    platform: str,
+    name: str,
+) -> tuple[list[Candidate], str | None]:
+    name = _clean_text(name)
+    if len(name) < 3:
+        return [], None
+
+    if platform == "youtube":
+        search_url = "https://www.youtube.com/results"
+        params = {"search_query": name}
+    elif platform == "tiktok":
+        search_url = "https://www.tiktok.com/search/user"
+        params = {"q": name}
+    else:
+        return [], None
+
+    try:
+        response = await client.get(
+            search_url,
+            params=params,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
+            },
+        )
+        if response.status_code != 200:
+            return [], f"{platform.title()} public search returned HTTP {response.status_code}"
+        handles = _extract_handles_from_search_html(platform, response.text[:3_000_000])
+    except Exception as exc:
+        return [], f"{platform.title()} public search unavailable: {type(exc).__name__}"
+
+    candidates: list[Candidate] = []
+    for handle in handles[:12]:
+        candidate = await _public_platform_profile(client, platform, handle)
+        if not candidate:
+            continue
+        candidate_name = _candidate_name(candidate.title, candidate.handle)
+        similarity = _name_similarity(candidate_name, name)
+        if similarity >= 0.72:
+            candidate.provenance = f"{platform}_public_search"
+            candidates.append(candidate)
+    return candidates, None
 
 
 async def _github_profile(
