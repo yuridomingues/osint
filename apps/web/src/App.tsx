@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, Boxes, CalendarClock, ChevronRight, CircleDot,
-  Database, FileSearch, FileText, Globe2, Image as ImageIcon, Lightbulb, ListChecks, Map,
-  Network, Play, Plus, RefreshCw, Search, ShieldCheck, X
+  Activity, AlertTriangle, Boxes, Building2, CalendarClock, ChevronRight, CircleDot,
+  Database, FileSearch, FileText, Globe2, Image as ImageIcon, LayoutDashboard, Lightbulb, ListChecks, Map,
+  Network, Play, Plus, RefreshCw, Search, ShieldCheck, UserRoundSearch, X
 } from "lucide-react";
 import { api, Case, ModuleInfo, TargetType, Workspace } from "./api";
 import AnalysisPanel from "./components/AnalysisPanel";
@@ -12,10 +12,12 @@ import ImportPanel from "./components/ImportPanel";
 import ImagePanel from "./components/ImagePanel";
 import MapPanel from "./components/MapPanel";
 import ModulesPanel from "./components/ModulesPanel";
+import OverviewPanel from "./components/OverviewPanel";
 import ReportPanel from "./components/ReportPanel";
 import TimelinePanel from "./components/TimelinePanel";
 
 type Tab =
+  | "overview"
   | "graph"
   | "evidence"
   | "image"
@@ -45,7 +47,7 @@ function NewCaseModal({
 }) {
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
-  const [targetType, setTargetType] = useState<TargetType>("domain");
+  const [targetType, setTargetType] = useState<TargetType>("public_account");
   const [objective, setObjective] = useState("");
   const [ack, setAck] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -97,27 +99,37 @@ function NewCaseModal({
           />
         </label>
 
-        <div className="two-col">
-          <label>
-            Tipo
-            <select value={targetType} onChange={(e) => setTargetType(e.target.value as TargetType)}>
-              <option value="domain">Domínio</option>
-              <option value="organization">Organização / domínio</option>
-              <option value="url">URL pública</option>
-              <option value="ip">IP público</option>
-              <option value="public_account">Conta pública</option>
-            </select>
-          </label>
-
-          <label>
-            Nome do case
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex.: Brand impersonation Q3"
-            />
-          </label>
+        <div className="case-type-block">
+          <span className="field-label">O que você quer investigar?</span>
+          <div className="case-type-grid">
+            {[
+              ["public_account", "Pessoa / perfil público", "Instagram, X, GitHub, Substack…", UserRoundSearch],
+              ["domain", "Site / domínio", "Domínios, subdomínios e histórico", Globe2],
+              ["organization", "Empresa / organização", "Infraestrutura pública relacionada", Building2],
+              ["url", "Página específica", "Histórico e contexto de uma URL", FileSearch],
+              ["ip", "IP público", "Dono da faixa e contexto técnico", Network]
+            ].map(([value, label, help, Icon]) => (
+              <button
+                key={String(value)}
+                type="button"
+                className={targetType === value ? "case-type active" : "case-type"}
+                onClick={() => setTargetType(value as TargetType)}
+              >
+                <Icon size={17} />
+                <span><b>{String(label)}</b><small>{String(help)}</small></span>
+              </button>
+            ))}
+          </div>
         </div>
+
+        <label>
+          Nome da investigação
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ex.: Minha presença pública"
+          />
+        </label>
 
         <label>
           Objective / intelligence question
@@ -125,14 +137,14 @@ function NewCaseModal({
             rows={3}
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
-            placeholder="Qual pergunta este case precisa responder?"
+            placeholder="Ex.: Quero descobrir onde esse perfil aparece publicamente e quais contas parecem relacionadas."
           />
         </label>
 
         {targetType === "public_account" && (
           <div className="scope-note">
             <ShieldCheck size={15} />
-            Contas públicas usam observações/imports. O VIGIL não faz varredura automática de pessoas.
+            O VIGIL consulta somente fontes públicas e mostra a evidência por trás de cada conexão. Não usa reconhecimento facial nem dados privados como atalho.
           </div>
         )}
 
@@ -233,7 +245,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState("");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [modules, setModules] = useState<ModuleInfo[]>([]);
-  const [tab, setTab] = useState<Tab>("graph");
+  const [tab, setTab] = useState<Tab>("overview");
   const [newCase, setNewCase] = useState(false);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -305,17 +317,18 @@ export default function App() {
     }
   }
 
-  const tabs: Array<[Tab, string, React.ComponentType<{ size?: number }>]> = [
-    ["graph", "Graph", Network],
-    ["evidence", "Evidence", Database],
-    ["image", "Image", ImageIcon],
-    ["findings", "Findings", FileSearch],
-    ["timeline", "Timeline", CalendarClock],
-    ["map", "Map", Map],
-    ["analysis", "Analysis", Lightbulb],
-    ["report", "Report", FileText],
-    ["modules", "Modules", Boxes],
-    ["audit", "Audit", ListChecks]
+  const tabs: Array<[Tab, string, React.ComponentType<{ size?: number }>, boolean?]> = [
+    ["overview", "Visão geral", LayoutDashboard],
+    ["graph", "Conexões", Network],
+    ["evidence", "Fontes", Database],
+    ["image", "Imagens", ImageIcon],
+    ["findings", "Achados", FileSearch],
+    ["timeline", "Linha do tempo", CalendarClock],
+    ["map", "Mapa", Map],
+    ["analysis", "Análise", Lightbulb],
+    ["report", "Relatório", FileText],
+    ["modules", "Módulos", Boxes, true],
+    ["audit", "Auditoria", ListChecks, true]
   ];
 
   const currentCase = workspace?.graph.case;
@@ -367,8 +380,8 @@ export default function App() {
             <span className="eyebrow">investigation workspace</span>
             <h1>Do selector ao relatório.<br />Tudo no mesmo case.</h1>
             <p>
-              Colete fontes públicas, correlacione entidades, revise relações, monte hipóteses,
-              acompanhe a timeline e exporte um relatório rastreável.
+              Comece com um perfil, site, organização, URL ou IP. O VIGIL escolhe as fontes adequadas,
+              explica o que encontrou e mantém cada conclusão ligada à evidência.
             </p>
             <button className="primary" onClick={() => setNewCase(true)}>
               <Plus size={16} /> criar investigation
@@ -417,14 +430,23 @@ export default function App() {
             </section>
 
             <nav className="tabs scrollable">
-              {tabs.map(([id, label, Icon]) => (
+              {tabs.map(([id, label, Icon, advanced]) => (
                 <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
-                  <Icon size={15} />{label}
+                  <Icon size={15} />{label}{advanced ? <small>avançado</small> : null}
                 </button>
               ))}
             </nav>
 
             <section className="content">
+              {tab === "overview" && (
+                <OverviewPanel
+                  workspace={workspace}
+                  running={running}
+                  onRun={run}
+                  onOpenTab={(next) => setTab(next)}
+                />
+              )}
+
               {tab === "graph" && (
                 <>
                   <GraphCanvas
