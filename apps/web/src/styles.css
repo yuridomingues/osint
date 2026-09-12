@@ -185,3 +185,6 @@ a{color:inherit;text-decoration:none}
 
 @media(max-width:1000px){.plain-stats{grid-template-columns:1fr 1fr}.overview-columns{grid-template-columns:1fr}.overview-hero{align-items:flex-start;flex-direction:column}.overview-run{min-width:0}.case-type-grid{grid-template-columns:1fr}}
 @media(max-width:600px){.plain-stats{grid-template-columns:1fr 1fr}.overview-hero{padding:16px}.overview-hero h2{font-size:18px}.method-strip div{display:grid;gap:5px}}
+
+.tabs .advanced-toggle{margin-left:auto;border-left:1px solid #263229;color:#65746c}
+.tabs .advanced-toggle.active{color:#a8bd9b}
