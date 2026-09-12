@@ -74,9 +74,10 @@ app = FastAPI(
     description="Public-source investigation, provenance, link analysis and analyst-workspace API.",
 )
 
+default_origins = "*" if os.getenv("VERCEL") else "http://localhost:5173"
 origins = [
     value.strip()
-    for value in os.getenv("VIGIL_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    for value in os.getenv("VIGIL_ALLOWED_ORIGINS", default_origins).split(",")
     if value.strip()
 ]
 app.add_middleware(
@@ -99,7 +100,13 @@ def require_case(case_id: str) -> Case:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "vigil-osint-api", "version": "0.4.0"}
+    return {
+        "status": "ok",
+        "service": "vigil-osint-api",
+        "version": "0.4.0",
+        "environment": "vercel-test" if os.getenv("VERCEL") else "local",
+        "persistence": "ephemeral" if os.getenv("VERCEL") else "sqlite",
+    }
 
 
 @app.get("/modules")
