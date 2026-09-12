@@ -11,6 +11,9 @@ VIGIL is an orchestration and analysis layer. It should not clone mature tools w
 | Internet Archive CDX | public historical URL evidence | built-in passive collector |
 | Brave Search / DuckDuckGo fallback | public profile candidate discovery | built-in passive identity collector |
 | GitHub public history | removed profile links and historical public evidence | built-in passive identity collector |
+| Pillow | local image decoding, safe EXIF and perceptual fingerprints | built-in image evidence |
+| TinEye API | same/modified image discovery across the web | optional reverse-image adapter |
+| c2patool | Content Credentials / C2PA manifest parsing | optional local binary |
 | Sherlock | public username results | CSV import adapter |
 | Maigret | public username results | JSON / NDJSON import adapter |
 | Cytoscape.js | entity-link analysis | native UI graph |
@@ -86,3 +89,12 @@ For long-running integrations, use an isolated worker/container per tool.
 VIGIL separates *finding a candidate* from *attributing identity*.
 
 A profile with a different username can still be found from public display names, descriptive text, explicit cross-links, a shared external domain, or a URL preserved in public Git history. Search results are leads. The correlation score records why a relation exists and does not treat username or display-name similarity alone as proof.
+
+
+## Image-evidence strategy
+
+VIGIL treats visual evidence as an asset, not as a biometric identity selector.
+
+Built-in analysis records a cryptographic SHA-256 hash, aHash, dHash, dimensions, safe EXIF fields and C2PA availability. Precise GPS is intentionally redacted in person/account workflows. If TinEye is configured, VIGIL can search for exact or modified copies of the image and pivot from the public pages where that copy appears.
+
+This is deliberately different from face recognition: a reverse-image match means the same visual asset (or a derivative) was observed elsewhere; it does not mean that two different photographs contain the same person.
