@@ -113,10 +113,10 @@ export default function GraphCanvas({
         {
           selector: "node",
           style: {
-            "background-color": "#b9f56a",
-            "border-color": "#090c0a",
+            "background-color": "#b7dc7d",
+            "border-color": "#17101f",
             "border-width": 3,
-            color: "#eff7ed",
+            color: "#f2edf4",
             label: "data(label)",
             "font-size": 10,
             "text-wrap": "wrap",
@@ -127,51 +127,51 @@ export default function GraphCanvas({
             height: 40
           }
         },
-        { selector: 'node[kind = "domain"]', style: { "background-color": "#8aa7ff", shape: "diamond" } },
-        { selector: 'node[kind = "url"]', style: { "background-color": "#a6bbff", shape: "round-rectangle" } },
-        { selector: 'node[kind = "ip"]', style: { "background-color": "#78d6dc", shape: "hexagon" } },
-        { selector: 'node[kind = "hostname"]', style: { "background-color": "#7ed7c4", shape: "round-rectangle" } },
-        { selector: 'node[kind = "nameserver"]', style: { "background-color": "#d3a7ff", shape: "hexagon" } },
-        { selector: 'node[kind = "account"]', style: { "background-color": "#f4c86d", shape: "ellipse" } },
-        { selector: 'node[kind = "public_account"]', style: { "background-color": "#f4c86d", shape: "ellipse" } },
-        { selector: 'node[kind = "image"]', style: { "background-color": "#eaa7ff", shape: "round-rectangle", width: 48, height: 38 } },
-        { selector: 'node[kind = "publication"]', style: { "background-color": "#d4b6ff", shape: "round-rectangle" } },
-        { selector: 'node[kind = "content_cluster"]', style: { "background-color": "#f19ac1", shape: "round-diamond" } },
-        { selector: 'node[kind = "entity_cluster"]', style: { "background-color": "#f19ac1", shape: "star", width: 48, height: 48 } },
+        { selector: 'node[kind = "domain"]', style: { "background-color": "#9b7ad8", shape: "diamond" } },
+        { selector: 'node[kind = "url"]', style: { "background-color": "#b596e5", shape: "round-rectangle" } },
+        { selector: 'node[kind = "ip"]', style: { "background-color": "#8fcdb0", shape: "hexagon" } },
+        { selector: 'node[kind = "hostname"]', style: { "background-color": "#a8d68f", shape: "round-rectangle" } },
+        { selector: 'node[kind = "nameserver"]', style: { "background-color": "#c29be8", shape: "hexagon" } },
+        { selector: 'node[kind = "account"]', style: { "background-color": "#b7dc7d", shape: "ellipse" } },
+        { selector: 'node[kind = "public_account"]', style: { "background-color": "#b7dc7d", shape: "ellipse" } },
+        { selector: 'node[kind = "image"]', style: { "background-color": "#d39be8", shape: "round-rectangle", width: 48, height: 38 } },
+        { selector: 'node[kind = "publication"]', style: { "background-color": "#a989d8", shape: "round-rectangle" } },
+        { selector: 'node[kind = "content_cluster"]', style: { "background-color": "#d69bc0", shape: "round-diamond" } },
+        { selector: 'node[kind = "entity_cluster"]', style: { "background-color": "#c99bd6", shape: "star", width: 48, height: 48 } },
         {
           selector: "edge",
           style: {
             width: "mapData(confidence, 0, 1, 1, 4)",
-            "line-color": "#52605a",
-            "target-arrow-color": "#52605a",
+            "line-color": "#665673",
+            "target-arrow-color": "#665673",
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             label: "data(label)",
-            color: "#8d9c95",
+            color: "#aa9caf",
             "font-size": 8,
-            "text-background-color": "#111713",
+            "text-background-color": "#17101f",
             "text-background-opacity": 0.88,
             "text-background-padding": 3
           }
         },
         {
           selector: 'edge[review = "confirmed"]',
-          style: { "line-color": "#97d965", "target-arrow-color": "#97d965" }
+          style: { "line-color": "#b7dc7d", "target-arrow-color": "#b7dc7d" }
         },
         {
           selector: 'edge[review = "needs_review"]',
-          style: { "line-color": "#e4c96f", "target-arrow-color": "#e4c96f", "line-style": "dashed" }
+          style: { "line-color": "#c5a7e7", "target-arrow-color": "#c5a7e7", "line-style": "dashed" }
         },
         {
           selector: 'edge[review = "rejected"]',
-          style: { "line-color": "#cc7769", "target-arrow-color": "#cc7769", "line-style": "dotted", opacity: 0.55 }
+          style: { "line-color": "#ee8f83", "target-arrow-color": "#ee8f83", "line-style": "dotted", opacity: 0.55 }
         },
         {
           selector: ":selected",
           style: {
             "border-color": "#ffffff",
             "border-width": 4,
-            "overlay-color": "#b9f56a",
+            "overlay-color": "#8a67cf",
             "overlay-opacity": 0.08
           }
         }
