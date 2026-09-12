@@ -31,7 +31,18 @@ type Tab =
 
 function guessTargetType(value: string): TargetType {
   const target = value.trim();
-  if (/^https?:\/\//i.test(target)) return "url";
+  if (/^https?:\/\//i.test(target)) {
+    try {
+      const host = new URL(target).hostname.toLowerCase().replace(/^www\./, "");
+      if ([
+        "instagram.com", "x.com", "twitter.com", "github.com", "linkedin.com",
+        "substack.com", "medium.com", "tiktok.com", "youtube.com", "bsky.app"
+      ].includes(host)) return "public_account";
+    } catch {
+      // keep URL fallback below
+    }
+    return "url";
+  }
   if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(target) || target.includes(":")) return "ip";
   if (target.startsWith("@")) return "public_account";
   if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(target)) return "domain";
@@ -417,6 +428,14 @@ export default function App() {
               <div className="notice">
                 {notice}
                 <button onClick={() => setNotice("")}><X size={14} /></button>
+              </div>
+            )}
+
+            {window.location.hostname.endsWith("vercel.app") && (
+              <div className="cloud-test-banner">
+                <AlertTriangle size={13} />
+                <b>Ambiente de teste</b>
+                <span>o app está online para testes; os cases podem resetar até conectarmos persistência cloud.</span>
               </div>
             )}
 
