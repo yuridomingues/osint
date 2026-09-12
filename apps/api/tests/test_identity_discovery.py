@@ -264,3 +264,15 @@ def test_tiktok_native_search_parser_extracts_public_user():
     assert candidates[0].handle == "yuridomingues"
     assert candidates[0].title == "Yuri Domingues (@yuridomingues) | TikTok"
     assert candidates[0].description == "Software & AI"
+
+
+
+def test_facebook_threads_and_reddit_urls_are_canonicalized():
+    assert _canonical_profile("https://facebook.com/Yuri.Domingues/") == "https://www.facebook.com/Yuri.Domingues"
+    assert _canonical_profile("https://www.threads.net/@dominguesyuri_/") == "https://www.threads.net/@dominguesyuri_"
+    assert _canonical_profile("https://www.reddit.com/user/yuridomingues/") == "https://www.reddit.com/user/yuridomingues"
+
+
+def test_facebook_reserved_paths_are_not_profiles():
+    assert _canonical_profile("https://www.facebook.com/login/") is None
+    assert _canonical_profile("https://www.facebook.com/groups/123/") is None
