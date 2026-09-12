@@ -6,6 +6,13 @@ It centralizes public-source collection, tool imports, entity correlation, analy
 
 > VIGIL is designed for legitimate public-source research, brand protection, CTI, verification, misinformation analysis and authorized organizational investigations. It does not automate dossiers on private people, doxxing, credential collection, offensive social engineering or influence operations.
 
+## Live test environment
+
+- Web: `https://vigil-osint.vercel.app`
+- API health: `https://vigil-osint-api.vercel.app/health`
+
+The Vercel deployment is intentionally a **test environment**. The FastAPI service runs with temporary SQLite storage, so cases can reset when serverless instances recycle. Local Docker remains the persistent default until a dedicated cloud database is connected.
+
 ## Current product
 
 ### Investigation workspace
