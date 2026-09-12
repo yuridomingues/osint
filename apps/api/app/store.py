@@ -277,6 +277,12 @@ class Store:
 
     def add_finding(self, item: Finding) -> Finding:
         with self.connect() as db:
+            # Findings with the same semantic identity should represent the latest
+            # assessment, not stack up every time a collector is re-run.
+            db.execute(
+                "DELETE FROM findings WHERE case_id=? AND category=? AND title=?",
+                (item.case_id, item.category, item.title),
+            )
             db.execute(
                 "INSERT INTO findings(id,case_id,category,severity,title,summary,confidence,evidence_ids,created_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?)",
