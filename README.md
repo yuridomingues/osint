@@ -45,7 +45,8 @@ Built in:
 - Internet Archive / Wayback;
 - public IP allocation RDAP;
 - URL archive history;
-- public identity discovery across profile platforms using public web search, metadata, backlinks and historical GitHub README links.
+- public identity discovery across profile platforms using public web search, metadata, backlinks and historical GitHub README links;
+- image evidence analysis: SHA-256, aHash/dHash, safe EXIF, optional C2PA and optional TinEye reverse-image matching.
 
 Imports/adapters:
 
@@ -62,6 +63,7 @@ Subfinder/Amass/SpiderFoot adapters are limited to domain/organization cases. Sp
 ### Analysis
 
 - conservative account correlation;
+- image/media correlation without facial identification;
 - cross-handle identity discovery: different usernames can be surfaced from stable public signals such as display name, biography overlap, backlinks, shared external domains and historical links;
 - shared-domain/media multi-signal edges;
 - explainable fake/impersonation scoring;
@@ -220,3 +222,12 @@ Optional environment variables:
 
 - `BRAVE_SEARCH_API_KEY` — preferred search provider. Without it, VIGIL falls back to DuckDuckGo HTML results.
 - `GITHUB_TOKEN` — optional token to increase public GitHub API rate limits for historical-profile collection.
+
+
+## Image evidence
+
+Any case can accept an uploaded image from the **Image** tab.
+
+VIGIL preserves a SHA-256 fingerprint before analysis, computes lightweight perceptual hashes, extracts a privacy-filtered EXIF subset and checks for Content Credentials/C2PA. If `TINEYE_API_KEY` is configured, the same image can also be searched for exact or modified copies across TinEye's web index.
+
+A reverse-image match means the visual asset (or a derivative) appeared on another public page. VIGIL does not infer that two different photographs show the same person and does not implement facial recognition.
