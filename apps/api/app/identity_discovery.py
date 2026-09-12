@@ -18,6 +18,7 @@ from .store import Store
 
 USER_AGENT = "VIGIL-OSINT/0.3 public-source-identity-discovery"
 SEARCH_TIMEOUT = httpx.Timeout(12.0)
+DIRECT_PUBLIC_PROFILE_PLATFORMS = ("youtube", "tiktok", "facebook", "threads")
 
 PLATFORM_HOSTS: dict[str, tuple[str, ...]] = {
     "instagram": ("instagram.com", "www.instagram.com"),
@@ -759,6 +760,39 @@ def _valid_public_profile_page(platform: str, title: str, description: str, fina
         if any(marker in text for marker in ("tiktok - make your day", "couldn't find this account", "couldn’t find this account")):
             return False
         return True
+    if platform == "facebook":
+        if not title:
+            return False
+        if any(
+            marker in text
+            for marker in (
+                "facebook – log in or sign up",
+                "facebook - log in or sign up",
+                "log into facebook",
+                "content isn't available",
+                "content isn’t available",
+                "/login/",
+                "/recover/",
+                "/checkpoint/",
+            )
+        ):
+            return False
+        return True
+    if platform == "threads":
+        if not title or title.casefold() in {"threads", "threads.net"}:
+            return False
+        if any(
+            marker in text
+            for marker in (
+                "log in • threads",
+                "log in to threads",
+                "page isn't available",
+                "page isn’t available",
+                "/login/",
+            )
+        ):
+            return False
+        return True
     return bool(title)
 
 
@@ -775,6 +809,10 @@ async def _public_platform_profile(
         url = f"https://www.youtube.com/@{quote(handle)}"
     elif platform == "tiktok":
         url = f"https://www.tiktok.com/@{quote(handle)}"
+    elif platform == "facebook":
+        url = f"https://www.facebook.com/{quote(handle)}"
+    elif platform == "threads":
+        url = f"https://www.threads.net/@{quote(handle)}"
     else:
         return None
 
@@ -808,14 +846,20 @@ async def _public_platform_profile(
             found = re.search(r'"uniqueId"\s*:\s*"([^"\\]+)"', raw)
             if found:
                 canonical_handle = unquote(found.group(1))
+        elif platform == "threads":
+            found = re.search(r'"username"\s*:\s*"([^"\\]+)"', raw)
+            if found:
+                canonical_handle = unquote(found.group(1)).lstrip("@")
 
         outbound = set(filter(None, (_safe_outbound(link) for link in parser.links)))
+        canonical_url = {
+            "youtube": f"https://www.youtube.com/@{canonical_handle}",
+            "tiktok": f"https://www.tiktok.com/@{canonical_handle}",
+            "facebook": f"https://www.facebook.com/{canonical_handle}",
+            "threads": f"https://www.threads.net/@{canonical_handle}",
+        }[platform]
         return Candidate(
-            url=(
-                f"https://www.youtube.com/@{canonical_handle}"
-                if platform == "youtube"
-                else f"https://www.tiktok.com/@{canonical_handle}"
-            ),
+            url=canonical_url,
             platform=platform,
             handle=canonical_handle,
             title=title,
