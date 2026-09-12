@@ -9,6 +9,7 @@ from app.identity_discovery import (
     _fetch_candidate,
     _name_handle_variants,
     _normalize_handle,
+    _public_platform_profile,
     _substack_publications_from_mapping,
     _tiktok_search_candidates,
     _youtube_search_candidates,
@@ -276,3 +277,53 @@ def test_facebook_threads_and_reddit_urls_are_canonicalized():
 def test_facebook_reserved_paths_are_not_profiles():
     assert _canonical_profile("https://www.facebook.com/login/") is None
     assert _canonical_profile("https://www.facebook.com/groups/123/") is None
+
+
+
+def test_facebook_login_page_is_not_accepted_as_profile():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            text=(
+                "<html><head><title>Facebook - log in or sign up</title>"
+                "<meta property='og:description' content='Log into Facebook to start sharing'/>"
+                "</head></html>"
+            ),
+        )
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+        ) as client:
+            return await _public_platform_profile(client, "facebook", "yuridomingues")
+
+    assert asyncio.run(run()) is None
+
+
+def test_facebook_public_profile_can_be_validated_from_public_metadata():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            text=(
+                "<html><head>"
+                "<meta property='og:title' content='Yuri Domingues | Facebook'/>"
+                "<meta property='og:description' content='Public profile for Yuri Domingues'/>"
+                "</head></html>"
+            ),
+        )
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+        ) as client:
+            return await _public_platform_profile(client, "facebook", "yuridomingues")
+
+    candidate = asyncio.run(run())
+    assert candidate is not None
+    assert candidate.platform == "facebook"
+    assert candidate.handle == "yuridomingues"
+    assert candidate.title == "Yuri Domingues | Facebook"
