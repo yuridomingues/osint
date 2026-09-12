@@ -26,6 +26,8 @@ This document separates product capability from data-provider coverage.
 | URL passive OSINT | Ready | normalization + Wayback |
 | IP passive context | Ready | public allocation/RDAP; no precise-person geolocation |
 | Public identity discovery | Ready | cross-handle candidates from public web search, metadata, backlinks, external domains and GitHub history |
+| Image evidence | Ready | local SHA-256, aHash/dHash, safe EXIF, optional C2PA parsing, local media correlation |
+| Reverse image search | Optional | TinEye API adapter for exact/modified copies; no facial recognition |
 | Sherlock import | Ready | public account CSV |
 | Maigret import | Ready | public account JSON/NDJSON |
 | Subfinder import | Ready | organizational/domain JSONL |
@@ -47,8 +49,11 @@ These are integration points rather than reasons to fork upstream projects.
 | urlscan.io | API enrichment for URLs/domains |
 | VirusTotal | optional domain/URL enrichment |
 | Censys/Shodan | optional organization/infrastructure enrichment |
-| ExifTool | local metadata adapter for files supplied to a case |
-| Image evidence | local SHA-256/perceptual hash and non-biometric metadata |
+| ExifTool | deeper metadata coverage beyond Pillow-safe EXIF |
+| C2PA validation worker | c2patool-backed full validation and trust-chain reporting |
+| Visual OCR | text extraction from supplied evidence, with language packs and provenance |
+| Video evidence | frame extraction, keyframe hashing and reverse-image pivots |
+| Media corpus index | local perceptual-hash index across collected public evidence |
 | Object storage | raw source bundle storage for larger teams |
 | Multi-user | PostgreSQL + authentication/RBAC |
 | Queue/workers | isolated collectors via job queue |
