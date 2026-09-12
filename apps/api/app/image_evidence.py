@@ -145,7 +145,8 @@ def _safe_exif(image: Image.Image) -> dict:
 
 def _c2pa_summary(data: bytes, suffix: str) -> dict:
     marker_present = b"c2pa" in data.lower() or b"jumb" in data.lower()
-    tool = shutil.which("c2patool")
+    enabled = os.getenv("VIGIL_ENABLE_C2PA_TOOL", "1").strip().casefold() not in {"0", "false", "no"}
+    tool = shutil.which("c2patool") if enabled else None
     summary: dict[str, object] = {
         "marker_present": marker_present,
         "tool_available": bool(tool),
