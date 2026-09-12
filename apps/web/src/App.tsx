@@ -36,7 +36,8 @@ function guessTargetType(value: string): TargetType {
       const host = new URL(target).hostname.toLowerCase().replace(/^www\./, "");
       if ([
         "instagram.com", "x.com", "twitter.com", "github.com", "linkedin.com",
-        "substack.com", "medium.com", "tiktok.com", "youtube.com", "bsky.app"
+        "substack.com", "medium.com", "tiktok.com", "youtube.com", "bsky.app",
+        "facebook.com", "threads.net", "reddit.com", "twitch.tv", "pinterest.com"
       ].includes(host)) return "public_account";
     } catch {
       // keep URL fallback below
@@ -118,7 +119,7 @@ function NewCaseModal({
           <span className="field-label">O que você quer investigar?</span>
           <div className="case-type-grid">
             {[
-              ["public_account", "Pessoa / perfil público", "Instagram, X, GitHub, Substack…", UserRoundSearch],
+              ["public_account", "Pessoa / perfil público", "Instagram, X, Facebook, YouTube, TikTok…", UserRoundSearch],
               ["domain", "Site / domínio", "Domínios, subdomínios e histórico", Globe2],
               ["organization", "Empresa / organização", "Infraestrutura pública relacionada", Building2],
               ["url", "Página específica", "Histórico e contexto de uma URL", FileSearch],
