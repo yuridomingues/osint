@@ -11,6 +11,7 @@ from .coordination import analyze_public_posts
 from .correlation import import_public_observations
 from .exporters import as_graphml, as_json
 from .identity_discovery import collect_public_identity_discovery
+from .image_evidence import attach_image_evidence
 from .models import (
     Assessment,
     Case,
@@ -24,6 +25,7 @@ from .models import (
     HypothesisCreate,
     HypothesisUpdate,
     ImpersonationSignals,
+    ImageEvidenceImport,
     Note,
     NoteCreate,
     ObservationImport,
@@ -68,7 +70,7 @@ from .workspace import (
 
 app = FastAPI(
     title="VIGIL OSINT API",
-    version="0.3.0",
+    version="0.4.0",
     description="Public-source investigation, provenance, link analysis and analyst-workspace API.",
 )
 
@@ -97,7 +99,7 @@ def require_case(case_id: str) -> Case:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "vigil-osint-api", "version": "0.3.0"}
+    return {"status": "ok", "service": "vigil-osint-api", "version": "0.4.0"}
 
 
 @app.get("/modules")
@@ -130,6 +132,20 @@ def modules() -> list[dict]:
             "mode": "passive",
             "available": True,
             "description": "Different-handle public-profile discovery using web search, public metadata, explicit backlinks and GitHub history.",
+        },
+        {
+            "id": "image-evidence",
+            "name": "Image evidence",
+            "mode": "analysis",
+            "available": True,
+            "description": "Local SHA-256, aHash/dHash, EXIF and optional C2PA analysis without facial identification.",
+        },
+        {
+            "id": "reverse-image-tineye",
+            "name": "TinEye reverse image",
+            "mode": "enrichment",
+            "available": bool(os.getenv("TINEYE_API_KEY", "").strip()),
+            "description": "Optional same/modified-image web search. Requires TINEYE_API_KEY; this is not face recognition.",
         },
         {
             "id": "sherlock",
@@ -326,6 +342,17 @@ async def run_case(case_id: str, payload: RunRequest) -> RunResponse:
         findings_added=findings_added,
         warnings=warnings,
     )
+
+
+@app.post("/cases/{case_id}/images")
+async def add_image_evidence(case_id: str, payload: ImageEvidenceImport) -> dict:
+    require_case(case_id)
+    try:
+        result = await attach_image_evidence(store, case_id, payload)
+        auto_timeline_from_evidence(store, case_id)
+        return result
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/cases/{case_id}/observations")
