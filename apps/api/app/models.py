@@ -119,6 +119,13 @@ class ObservationImport(BaseModel):
     observations: list[PublicObservation] = Field(min_length=1, max_length=500)
 
 
+class ImageEvidenceImport(BaseModel):
+    filename: str = Field(default="image.jpg", min_length=1, max_length=255)
+    content_type: str = Field(default="image/jpeg", max_length=120)
+    data_base64: str = Field(min_length=16, max_length=18_000_000)
+    search_web: bool = False
+
+
 class ToolImport(BaseModel):
     tool: str = Field(pattern=r"^(sherlock_csv|maigret_json|subfinder_jsonl|amass_json|spiderfoot_csv)$")
     content: str = Field(min_length=1, max_length=5_000_000)
