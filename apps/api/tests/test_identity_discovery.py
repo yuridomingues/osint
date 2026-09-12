@@ -3,6 +3,7 @@ from app.identity_discovery import (
     _canonical_profile,
     _candidate_name,
     _normalize_handle,
+    _substack_publications_from_mapping,
     score_candidate,
 )
 
@@ -118,3 +119,25 @@ def test_unanchored_github_history_is_not_strong_identity_evidence():
     assert score < 0.45
     assert not strong
     assert not any("Git history" in reason for reason in reasons)
+
+
+def test_substack_publication_is_separate_from_author_profile():
+    data = {
+        "handle": "yuridomingues",
+        "name": "Yuri Domingues",
+        "publicationUsers": [
+            {
+                "publication_id": 42,
+                "name": "Escassez",
+                "subdomain": "escassez",
+                "description": "Public newsletter description",
+            }
+        ],
+    }
+
+    publications = _substack_publications_from_mapping(data)
+
+    assert len(publications) == 1
+    assert publications[0]["name"] == "Escassez"
+    assert publications[0]["url"] == "https://escassez.substack.com"
+    assert publications[0]["publication_id"] == 42
