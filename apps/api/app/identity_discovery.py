@@ -30,6 +30,11 @@ PLATFORM_HOSTS: dict[str, tuple[str, ...]] = {
     "bluesky": ("bsky.app",),
     "youtube": ("youtube.com", "www.youtube.com"),
     "tiktok": ("tiktok.com", "www.tiktok.com"),
+    "facebook": ("facebook.com", "www.facebook.com", "m.facebook.com"),
+    "threads": ("threads.net", "www.threads.net"),
+    "reddit": ("reddit.com", "www.reddit.com"),
+    "twitch": ("twitch.tv", "www.twitch.tv"),
+    "pinterest": ("pinterest.com", "www.pinterest.com"),
 }
 
 SAFE_PROFILE_HOSTS = {host for hosts in PLATFORM_HOSTS.values() for host in hosts}
@@ -51,6 +56,11 @@ RESERVED_PROFILE_PATHS: dict[str, set[str]] = {
     "substack": {"home", "search", "browse", "inbox", "settings", "publish"},
     "youtube": {"watch", "shorts", "playlist", "results", "feed"},
     "tiktok": {"discover", "tag", "music", "login"},
+    "facebook": {"login", "recover", "help", "groups", "pages", "events", "marketplace", "watch", "gaming", "profile.php"},
+    "threads": {"login", "search", "activity", "settings"},
+    "reddit": {"r", "search", "login", "register", "settings", "notifications"},
+    "twitch": {"directory", "downloads", "jobs", "p", "settings"},
+    "pinterest": {"search", "ideas", "today", "business", "login"},
 }
 CONTACT_RE = re.compile(
     r"(?i)(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{7,}\d)"
@@ -215,6 +225,10 @@ def _profile_handle(url: str, platform: str) -> str:
         if not parts[0].startswith("@"):
             return ""
         return parts[0][1:]
+    if platform == "reddit":
+        if len(parts) >= 2 and parts[0].casefold() in {"u", "user"}:
+            return parts[1]
+        return ""
     if platform == "instagram":
         # /p/<id>, /reel/<id>, /stories/... are content URLs, never profiles.
         return parts[0].lstrip("@")
@@ -244,6 +258,16 @@ def _canonical_profile(url: str) -> str | None:
         return f"https://www.instagram.com/{handle}"
     if platform == "github":
         return f"https://github.com/{handle}"
+    if platform == "facebook":
+        return f"https://www.facebook.com/{handle}"
+    if platform == "threads":
+        return f"https://www.threads.net/@{handle}"
+    if platform == "reddit":
+        return f"https://www.reddit.com/user/{handle}"
+    if platform == "twitch":
+        return f"https://www.twitch.tv/{handle}"
+    if platform == "pinterest":
+        return f"https://www.pinterest.com/{handle}"
     return f"{parsed.scheme or 'https'}://{parsed.hostname}/{parsed.path.strip('/')}"
 
 
@@ -261,6 +285,12 @@ def _candidate_name(title: str, handle: str) -> str:
         " | YouTube",
         " | TikTok",
         " on TikTok",
+        " | Facebook",
+        " | Threads",
+        " • Threads",
+        " (u/",
+        " - Twitch",
+        " | Pinterest",
     ):
         if suffix in text:
             text = text.split(suffix, 1)[0]
