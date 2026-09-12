@@ -59,3 +59,38 @@ Before reporting a conclusion, verify:
 - whether multiple signals are actually independent;
 - whether confidence language matches the evidence;
 - whether the conclusion goes beyond what the source proves.
+
+
+## Visual evidence / reverse-image investigation
+
+**Question:** where else has this visual asset appeared, and what public context can be verified around those appearances?
+
+1. Preserve and hash the original file before transformation.
+2. Extract safe metadata and record whether C2PA/Content Credentials are present.
+3. Compute perceptual hashes for local corpus matching.
+4. Run one or more reverse-image providers when configured.
+5. Preserve every matched public URL as evidence.
+6. Separate "same/modified image" from any claim about who appears in it.
+7. Pivot from matched pages to public accounts, publications, domains or archived copies.
+8. Compare timestamps and find the earliest verifiable public occurrence.
+9. Record alternative explanations such as licensed/reposted media.
+10. Report unresolved provenance instead of forcing attribution.
+
+This playbook follows the verification-first logic common in Bellingcat visual investigations: identify the artifact, preserve it, verify its provenance/context, corroborate, then present.
+
+## Source preservation playbook
+
+**Question:** can this source still be independently reviewed if the page changes or disappears?
+
+For important public URLs:
+
+1. record the original URL;
+2. record redirects and observation time;
+3. preserve page/media bytes when lawful and technically possible;
+4. calculate SHA-256;
+5. create a screenshot or rendered representation;
+6. archive through an external preservation service or VIGIL's future archive worker;
+7. record collector version and archive identifier;
+8. keep original artifact and derived representations separate.
+
+The design target is similar to Bellingcat's Auto Archiver philosophy: collection should produce both preserved content and metadata that helps demonstrate integrity.
