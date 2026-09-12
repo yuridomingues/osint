@@ -238,6 +238,16 @@ export const api = {
     body: JSON.stringify({ posts })
   }),
 
+  addImageEvidence: (id: string, payload: {
+    filename: string;
+    content_type: string;
+    data_base64: string;
+    search_web: boolean;
+  }) => request(`/cases/${id}/images`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+
   addNote: (id: string, payload: {
     body: string;
     entity_ids?: string[];
