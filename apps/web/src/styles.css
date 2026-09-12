@@ -387,7 +387,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 /* Mobile application shell */
 .mobile-header,.mobile-case-switcher,.mobile-bottom-nav,.mobile-more-backdrop{display:none}
 
-@media(max-width:760px){
+@media(max-width:820px){
   body{padding-bottom:calc(74px + env(safe-area-inset-bottom))}
   body:before{opacity:.1}
   .app{display:block;min-height:100dvh}
