@@ -841,6 +841,24 @@ async def collect_public_identity_discovery(
     candidates: dict[str, Candidate] = {}
     seed_anchor_urls: set[str] = {seed_url} if seed_url else set()
     seen_search_evidence: set[tuple[str, str, str]] = set()
+
+    existing_graph = store.graph(case_id)
+    evidence_index: dict[tuple[str, str, str], str] = {}
+    if existing_graph:
+        for item in existing_graph.evidence:
+            evidence_index[(item.collector, item.source_url or "", item.excerpt)] = item.id
+
+    def add_evidence_once(item: Evidence) -> str:
+        nonlocal evidence_added
+        key = (item.collector, item.source_url or "", item.excerpt)
+        existing_id = evidence_index.get(key)
+        if existing_id:
+            return existing_id
+        store.add_evidence(item)
+        evidence_added += 1
+        evidence_index[key] = item.id
+        return item.id
+
     if seed_url and seed_platform:
         candidates[seed_url] = Candidate(
             url=seed_url,
@@ -926,9 +944,9 @@ async def collect_public_identity_discovery(
                         },
                         reliability=0.55,
                     )
-                    store.add_evidence(ev)
-                    candidate.evidence_ids.append(ev.id)
-                    evidence_added += 1
+                    evidence_id = add_evidence_once(ev)
+                    if evidence_id not in candidate.evidence_ids:
+                        candidate.evidence_ids.append(evidence_id)
 
         # If the user supplied only @handle (without platform), choose the strongest
         # exact-handle public profile as the initial anchor. This is a collection anchor,
@@ -994,9 +1012,9 @@ async def collect_public_identity_discovery(
                     },
                     reliability=0.82,
                 )
-                store.add_evidence(ev)
-                existing.evidence_ids.append(ev.id)
-                evidence_added += 1
+                evidence_id = add_evidence_once(ev)
+                if evidence_id not in existing.evidence_ids:
+                    existing.evidence_ids.append(evidence_id)
 
             # Probe a small, explainable set of handle variants derived from the public
             # display name. A candidate is kept only when the first-party profile itself
@@ -1044,9 +1062,9 @@ async def collect_public_identity_discovery(
                             },
                             reliability=0.72,
                         )
-                        store.add_evidence(ev)
-                        existing.evidence_ids.append(ev.id)
-                        evidence_added += 1
+                        evidence_id = add_evidence_once(ev)
+                        if evidence_id not in existing.evidence_ids:
+                            existing.evidence_ids.append(evidence_id)
 
             substack_candidates, substack_warning = await _substack_people_search(client, name)
             if substack_warning and substack_warning not in warnings:
@@ -1205,11 +1223,11 @@ async def collect_public_identity_discovery(
                     },
                     reliability=0.92 if history_is_anchored else 0.68,
                 )
-                store.add_evidence(ev)
-                historical_candidate.evidence_ids.append(ev.id)
-                if historical_url in anchored_links:
-                    github.evidence_ids.append(ev.id)
-                evidence_added += 1
+                evidence_id = add_evidence_once(ev)
+                if evidence_id not in historical_candidate.evidence_ids:
+                    historical_candidate.evidence_ids.append(evidence_id)
+                if historical_url in anchored_links and evidence_id not in github.evidence_ids:
+                    github.evidence_ids.append(evidence_id)
                 if history_is_anchored:
                     known_profiles.add(historical_url)
 
@@ -1324,8 +1342,7 @@ async def collect_public_identity_discovery(
                 },
                 reliability=0.88,
             )
-            store.add_evidence(ev)
-            evidence_added += 1
+            evidence_id = add_evidence_once(ev)
 
             store.add_edge(
                 Edge(
@@ -1336,7 +1353,7 @@ async def collect_public_identity_discovery(
                     relation="publishes",
                     confidence=0.96,
                     rationale=["publication is listed on the public Substack author profile"],
-                    evidence_ids=[ev.id],
+                    evidence_ids=[evidence_id],
                 )
             )
 
