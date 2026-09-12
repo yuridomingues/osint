@@ -1056,6 +1056,59 @@ async def collect_public_identity_discovery(
         # A different handle can still be discoverable through stable public identity anchors.
         # Use names observed from the supplied seed, not names manufactured from a username.
         for name in sorted(names)[:3]:
+            variants = _name_handle_variants(name, seed_handle)
+
+            # Public identity hubs are useful because they explicitly connect profiles.
+            # When a hub links back to the known seed, its other social links become
+            # strong cross-platform evidence rather than username guesses.
+            for variant in variants[:6]:
+                for hub_base in ("https://linktr.ee", "https://about.me", "https://bio.site"):
+                    hub_url = f"{hub_base}/{variant}"
+                    hub = await _probe_identity_hub(client, hub_url, {name}, seed_anchor_urls)
+                    if not hub:
+                        continue
+                    resolved_hub_url, linked_profiles, hub_title, hub_description, hub_anchored = hub
+
+                    hub_ev = Evidence(
+                        id=new_id("ev"),
+                        case_id=case_id,
+                        source="Public identity hub",
+                        collector="identity-hub",
+                        source_url=resolved_hub_url,
+                        excerpt=_redact_contact(hub_title or f"Public profile hub for {name}"),
+                        metadata={
+                            "query_name": name,
+                            "variant": variant,
+                            "anchored_to_seed": hub_anchored,
+                            "description": hub_description[:500],
+                            "linked_profiles": sorted(linked_profiles),
+                        },
+                        reliability=0.88 if hub_anchored else 0.68,
+                    )
+                    hub_evidence_id = add_evidence_once(hub_ev)
+
+                    for linked_url in linked_profiles:
+                        platform = _platform_for_url(linked_url)
+                        if not platform:
+                            continue
+                        handle = _profile_handle(linked_url, platform)
+                        if not handle:
+                            continue
+                        linked_candidate = candidates.setdefault(
+                            linked_url,
+                            Candidate(
+                                url=linked_url,
+                                platform=platform,
+                                handle=handle,
+                                provenance="explicit_link" if hub_anchored else "identity_hub_candidate",
+                            ),
+                        )
+                        if hub_anchored:
+                            linked_candidate.provenance = "explicit_link"
+                            known_profiles.add(linked_url)
+                        if hub_evidence_id not in linked_candidate.evidence_ids:
+                            linked_candidate.evidence_ids.append(hub_evidence_id)
+
             # First-party GitHub search is far more reliable than waiting for a web
             # search engine to index the right profile.
             github_people, github_warning = await _github_people_search(client, name)
@@ -1090,26 +1143,33 @@ async def collect_public_identity_discovery(
             # Probe a small, explainable set of handle variants derived from the public
             # display name. A candidate is kept only when the first-party profile itself
             # matches the observed public name.
-            for variant in _name_handle_variants(name, seed_handle):
+            for variant in variants:
                 github_variant = await _github_profile(client, variant)
                 if github_variant:
                     variant_name = _candidate_name(github_variant.title, github_variant.handle)
                     if _name_similarity(variant_name, name) >= 0.90:
+                        github_variant.provenance = (
+                            "explicit_link"
+                            if github_variant.url in known_profiles
+                            else "name-variant-probe"
+                        )
                         existing = candidates.setdefault(github_variant.url, github_variant)
+                        if github_variant.url in known_profiles:
+                            existing.provenance = "explicit_link"
                         existing.outbound_links.update(github_variant.outbound_links)
 
+                # A 200 from Substack's public-profile endpoint is itself evidence that
+                # the profile exists. A deterministic name-derived handle should be kept
+                # as a candidate even if the profile's display name is abbreviated.
                 substack_variant = await _substack_public_profile(client, variant)
-                if not substack_variant:
-                    substack_variant = Candidate(
-                        url=f"https://substack.com/@{variant}",
-                        platform="substack",
-                        handle=variant,
-                        provenance="name-variant-probe",
+                if substack_variant:
+                    substack_name = _candidate_name(substack_variant.title, substack_variant.handle)
+                    name_similarity = _name_similarity(substack_name, name)
+                    substack_variant.provenance = (
+                        "explicit_link"
+                        if substack_variant.url in known_profiles
+                        else "name-variant-probe"
                     )
-                    await _fetch_candidate(client, substack_variant)
-
-                substack_name = _candidate_name(substack_variant.title, substack_variant.handle)
-                if _name_similarity(substack_name, name) >= 0.90:
                     existing = candidates.setdefault(substack_variant.url, substack_variant)
                     if not existing.title:
                         existing.title = substack_variant.title
@@ -1118,24 +1178,31 @@ async def collect_public_identity_discovery(
                     existing.outbound_links.update(substack_variant.outbound_links)
                     if substack_variant.publications:
                         existing.publications = substack_variant.publications
-                    if not existing.evidence_ids:
-                        ev = Evidence(
-                            id=new_id("ev"),
-                            case_id=case_id,
-                            source="Substack public profile",
-                            collector="substack-name-variant-probe",
-                            source_url=substack_variant.url,
-                            excerpt=substack_variant.title,
-                            metadata={
-                                "query": name,
-                                "handle": substack_variant.handle,
-                                "discovery": "public-name-derived variant",
-                            },
-                            reliability=0.72,
-                        )
-                        evidence_id = add_evidence_once(ev)
-                        if evidence_id not in existing.evidence_ids:
-                            existing.evidence_ids.append(evidence_id)
+                    if substack_variant.url in known_profiles:
+                        existing.provenance = "explicit_link"
+
+                    ev = Evidence(
+                        id=new_id("ev"),
+                        case_id=case_id,
+                        source="Substack public profile",
+                        collector="substack-name-variant-probe",
+                        source_url=substack_variant.url,
+                        excerpt=substack_variant.title,
+                        metadata={
+                            "query": name,
+                            "handle": substack_variant.handle,
+                            "display_name_similarity": round(name_similarity, 3),
+                            "discovery": "public-name-derived variant",
+                            "publications": [
+                                publication.get("name")
+                                for publication in substack_variant.publications[:10]
+                            ],
+                        },
+                        reliability=0.76,
+                    )
+                    evidence_id = add_evidence_once(ev)
+                    if evidence_id not in existing.evidence_ids:
+                        existing.evidence_ids.append(evidence_id)
 
             substack_candidates, substack_warning = await _substack_people_search(client, name)
             if substack_warning and substack_warning not in warnings:
@@ -1249,7 +1316,7 @@ async def collect_public_identity_discovery(
             anchored_links = {
                 historical_url for historical_url, _ in historical if historical_url in known_profiles
             }
-            history_is_anchored = bool(anchored_links)
+            history_is_anchored = bool(anchored_links) or github.provenance == "explicit_link"
             if history_is_anchored:
                 github.provenance = "github_history"
                 known_profiles.add(github.url)
