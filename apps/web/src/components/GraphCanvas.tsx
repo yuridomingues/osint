@@ -133,6 +133,9 @@ export default function GraphCanvas({
         { selector: 'node[kind = "hostname"]', style: { "background-color": "#7ed7c4", shape: "round-rectangle" } },
         { selector: 'node[kind = "nameserver"]', style: { "background-color": "#d3a7ff", shape: "hexagon" } },
         { selector: 'node[kind = "account"]', style: { "background-color": "#f4c86d", shape: "ellipse" } },
+        { selector: 'node[kind = "public_account"]', style: { "background-color": "#f4c86d", shape: "ellipse" } },
+        { selector: 'node[kind = "image"]', style: { "background-color": "#eaa7ff", shape: "round-rectangle", width: 48, height: 38 } },
+        { selector: 'node[kind = "publication"]', style: { "background-color": "#d4b6ff", shape: "round-rectangle" } },
         { selector: 'node[kind = "content_cluster"]', style: { "background-color": "#f19ac1", shape: "round-diamond" } },
         { selector: 'node[kind = "entity_cluster"]', style: { "background-color": "#f19ac1", shape: "star", width: 48, height: 48 } },
         {
