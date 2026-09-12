@@ -194,14 +194,45 @@ export type ModuleInfo = {
   description?: string;
 };
 
+function apiErrorMessage(body: unknown, status: number): string {
+  if (!body || typeof body !== "object") return `Erro HTTP ${status}`;
+
+  const detail = (body as { detail?: unknown }).detail;
+
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      if (!item || typeof item !== "object") return String(item);
+      const record = item as { loc?: unknown[]; msg?: unknown; type?: unknown };
+      const field = Array.isArray(record.loc)
+        ? record.loc.filter((part) => part !== "body").join(".")
+        : "";
+      const message = typeof record.msg === "string" ? record.msg : "valor inválido";
+      return field ? `${field}: ${message}` : message;
+    }).filter(Boolean);
+    if (messages.length) return messages.join(" · ");
+  }
+
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return `Erro HTTP ${status}`;
+    }
+  }
+
+  return `Erro HTTP ${status}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) }
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `HTTP ${res.status}`);
+    const body = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(body, res.status));
   }
   return res.json();
 }
