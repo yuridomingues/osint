@@ -55,6 +55,7 @@ class Candidate:
     outbound_links: set[str] = field(default_factory=set)
     provenance: str = "web_search"
     evidence_ids: list[str] = field(default_factory=list)
+    publications: list[dict] = field(default_factory=list)
 
 
 class DuckDuckGoParser(HTMLParser):
@@ -394,6 +395,73 @@ def _public_links_from_mapping(data: dict) -> set[str]:
     return links
 
 
+def _substack_publication_url(item: dict) -> str:
+    for key in ("custom_domain", "customDomain"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            host = value.strip().removeprefix("https://").removeprefix("http://").strip("/")
+            if host:
+                return f"https://{host}"
+
+    for key in ("publication_url", "publicationUrl", "homepage_url", "homepageUrl", "url"):
+        value = item.get(key)
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            host = (urlparse(value).hostname or "").casefold()
+            if host.endswith(".substack.com") or "substack.com" not in host:
+                return value.split("#", 1)[0].rstrip("/")
+
+    for key in ("subdomain", "publication_subdomain", "publicationSubdomain"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            subdomain = value.strip().casefold()
+            if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", subdomain):
+                return f"https://{subdomain}.substack.com"
+
+    return ""
+
+
+def _substack_publications_from_mapping(data: dict) -> list[dict]:
+    publications: list[dict] = []
+    seen: set[str] = set()
+
+    for item in _walk_dicts(data):
+        url = _substack_publication_url(item)
+        name = _clean_text(str(item.get("name") or item.get("publication_name") or item.get("publicationName") or ""))
+        publication_id = item.get("publication_id") or item.get("publicationId")
+
+        # A publication must expose publication-specific addressing/ID information.
+        if not url and not publication_id:
+            continue
+        if not name:
+            continue
+
+        key = url or f"id:{publication_id}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        description = _redact_contact(
+            str(
+                item.get("description")
+                or item.get("hero_text")
+                or item.get("heroText")
+                or item.get("tagline")
+                or ""
+            )
+        )
+        publications.append(
+            {
+                "name": name,
+                "url": url,
+                "description": description,
+                "publication_id": publication_id,
+                "subdomain": item.get("subdomain"),
+            }
+        )
+
+    return publications
+
+
 async def _substack_public_profile(
     client: httpx.AsyncClient,
     handle: str,
@@ -427,6 +495,7 @@ async def _substack_public_profile(
             description=bio,
             outbound_links=_public_links_from_mapping(data),
             provenance="substack_public_profile",
+            publications=_substack_publications_from_mapping(data),
         )
         return candidate
     except Exception:
@@ -487,6 +556,8 @@ async def _fetch_candidate(client: httpx.AsyncClient, candidate: Candidate) -> C
             candidate.title = public_profile.title or candidate.title
             candidate.description = public_profile.description or candidate.description
             candidate.outbound_links.update(public_profile.outbound_links)
+            if public_profile.publications:
+                candidate.publications = public_profile.publications
 
     try:
         response = await client.get(candidate.url)
@@ -856,6 +927,7 @@ async def collect_public_identity_discovery(
                 await _fetch_candidate(client, candidate)
 
     confirmed = 0
+    accepted_substack: list[tuple[Entity, Candidate, float, list[str]]] = []
     for canonical, candidate in candidates.items():
         score, reasons, strong = score_candidate(
             seed_handle,
@@ -907,6 +979,73 @@ async def collect_public_identity_discovery(
                         evidence_ids=candidate.evidence_ids[:20],
                     )
                 )
+
+        is_seed_profile = bool(seed_url and canonical == seed_url)
+        is_confirmed_identity = score >= 0.45 and strong
+        if candidate.platform == "substack" and candidate.publications and (
+            is_seed_profile or is_confirmed_identity
+        ):
+            accepted_substack.append((entity, candidate, score, reasons))
+
+    # Model author/profile and publication as separate entities. A newsletter title can
+    # be completely unrelated to the author's username (e.g. @author -> "Escassez").
+    for profile_entity, candidate, identity_score, identity_reasons in accepted_substack:
+        for publication in candidate.publications[:20]:
+            pub_url = publication.get("url") or ""
+            pub_name = publication.get("name") or pub_url or "Substack publication"
+            pub_key = (
+                f"publication:substack:{pub_url.casefold()}"
+                if pub_url
+                else f"publication:substack:id:{publication.get('publication_id')}"
+            )
+            pub_entity = Entity(
+                id=new_id("ent"),
+                case_id=case_id,
+                kind="publication",
+                label=pub_name,
+                canonical_key=pub_key,
+                properties={
+                    "platform": "substack",
+                    "url": pub_url,
+                    "description": publication.get("description") or "",
+                    "publication_id": publication.get("publication_id"),
+                    "owner_handle": candidate.handle,
+                },
+                confidence=0.95,
+            )
+            pub_entity, was_created = store.upsert_entity(pub_entity)
+            created += int(was_created)
+
+            ev = Evidence(
+                id=new_id("ev"),
+                case_id=case_id,
+                source="Substack public profile",
+                collector="substack-public-profile",
+                source_url=candidate.url,
+                excerpt=f"Public Substack profile lists publication: {pub_name}",
+                metadata={
+                    "author_handle": candidate.handle,
+                    "publication_name": pub_name,
+                    "publication_url": pub_url,
+                    "publication_id": publication.get("publication_id"),
+                },
+                reliability=0.88,
+            )
+            store.add_evidence(ev)
+            evidence_added += 1
+
+            store.add_edge(
+                Edge(
+                    id=new_id("edge"),
+                    case_id=case_id,
+                    source_id=profile_entity.id,
+                    target_id=pub_entity.id,
+                    relation="publishes",
+                    confidence=0.96,
+                    rationale=["publication is listed on the public Substack author profile"],
+                    evidence_ids=[ev.id],
+                )
+            )
 
     if candidates:
         finding = Finding(
