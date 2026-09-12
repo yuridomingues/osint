@@ -697,6 +697,11 @@ def _generic_platform_page(title: str, description: str, final_url: str) -> bool
         "sign in to x",
         "login | linkedin",
         "join linkedin",
+        "facebook – log in or sign up",
+        "facebook - log in or sign up",
+        "log into facebook",
+        "log in • threads",
+        "log in to threads",
     )
     return any(marker in text for marker in generic_markers)
 
@@ -761,7 +766,7 @@ def _valid_public_profile_page(platform: str, title: str, description: str, fina
             return False
         return True
     if platform == "facebook":
-        if not title:
+        if not title or title.casefold() in {"facebook", "facebook.com"}:
             return False
         if any(
             marker in text
@@ -1356,7 +1361,7 @@ async def collect_public_identity_discovery(
         if substack_seed:
             candidates.setdefault(substack_seed.url, substack_seed)
 
-        for platform in ("youtube", "tiktok"):
+        for platform in DIRECT_PUBLIC_PROFILE_PLATFORMS:
             platform_seed = await _public_platform_profile(client, platform, seed_handle)
             if platform_seed:
                 existing = candidates.setdefault(platform_seed.url, platform_seed)
@@ -1608,7 +1613,7 @@ async def collect_public_identity_discovery(
             # display name. A candidate is kept only when the first-party profile itself
             # matches the observed public name.
             for variant in variants:
-                for platform in ("youtube", "tiktok"):
+                for platform in DIRECT_PUBLIC_PROFILE_PLATFORMS:
                     platform_variant = await _public_platform_profile(client, platform, variant)
                     if not platform_variant:
                         continue
@@ -1747,6 +1752,10 @@ async def collect_public_identity_discovery(
                         f'"{name}" "x.com"',
                         f'"{name}" YouTube',
                         f'"{name}" TikTok',
+                        f'site:facebook.com "{name}"',
+                        f'site:threads.net "{name}"',
+                        f'site:reddit.com/user "{name}"',
+                        f'site:twitch.tv "{name}"',
                     ]
                 )
             for query in name_queries:
