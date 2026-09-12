@@ -576,6 +576,19 @@ async def _substack_people_search(
     return candidates, None
 
 
+def _generic_platform_page(title: str, description: str, final_url: str) -> bool:
+    text = f"{title} {description} {final_url}".casefold()
+    generic_markers = (
+        "create an account or log in to instagram",
+        "log in • instagram",
+        "/accounts/login/",
+        "sign in to x",
+        "login | linkedin",
+        "join linkedin",
+    )
+    return any(marker in text for marker in generic_markers)
+
+
 async def _fetch_candidate(client: httpx.AsyncClient, candidate: Candidate) -> Candidate:
     if candidate.platform == "substack":
         public_profile = await _substack_public_profile(client, candidate.handle)
@@ -594,9 +607,16 @@ async def _fetch_candidate(client: httpx.AsyncClient, candidate: Candidate) -> C
             return candidate
         parser = PublicPageParser()
         parser.feed(response.text[:1_500_000])
-        candidate.title = parser.og_title or _clean_text("".join(parser.title)) or candidate.title
-        candidate.description = _redact_contact(parser.description or candidate.description)
-        candidate.outbound_links.update(filter(None, (_safe_outbound(x) for x in parser.links)))
+        page_title = parser.og_title or _clean_text("".join(parser.title))
+        page_description = _redact_contact(parser.description)
+        if not _generic_platform_page(page_title, page_description, str(response.url)):
+            # Search snippets are often more useful than login interstitials. Preserve
+            # an existing specific observation instead of replacing it with generic UI text.
+            if page_title and (not candidate.title or len(page_title) > len(candidate.title)):
+                candidate.title = page_title
+            if page_description and (not candidate.description or len(page_description) > len(candidate.description)):
+                candidate.description = page_description
+            candidate.outbound_links.update(filter(None, (_safe_outbound(x) for x in parser.links)))
     except Exception:
         pass
     return candidate
