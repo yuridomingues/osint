@@ -10,6 +10,8 @@ from app.identity_discovery import (
     _name_handle_variants,
     _normalize_handle,
     _substack_publications_from_mapping,
+    _tiktok_search_candidates,
+    _youtube_search_candidates,
     score_candidate,
 )
 
@@ -191,3 +193,74 @@ def test_login_interstitial_does_not_overwrite_search_metadata():
     result = asyncio.run(run())
     assert result.title.startswith("Yuri Domingues")
     assert result.description.startswith("dev ")
+
+
+
+def test_youtube_native_search_parser_extracts_channel_candidate():
+    raw = '''
+    <script>
+      var ytInitialData = {
+        "contents": {
+          "twoColumnSearchResultsRenderer": {
+            "primaryContents": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "itemSectionRenderer": {
+                      "contents": [
+                        {
+                          "channelRenderer": {
+                            "title": {"simpleText": "Yuri Domingues"},
+                            "descriptionSnippet": {"runs": [{"text": "Software Engineer"}]},
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "canonicalBaseUrl": "/@yuridomingues"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      };
+    </script>
+    '''
+
+    candidates = _youtube_search_candidates(raw)
+
+    assert len(candidates) == 1
+    assert candidates[0].handle == "yuridomingues"
+    assert candidates[0].title == "Yuri Domingues - YouTube"
+    assert candidates[0].description == "Software Engineer"
+
+
+def test_tiktok_native_search_parser_extracts_public_user():
+    raw = '''
+    <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">
+      {
+        "scope": {
+          "webapp.user-detail": {
+            "userInfo": {
+              "user": {
+                "uniqueId": "yuridomingues",
+                "nickname": "Yuri Domingues",
+                "signature": "Software & AI"
+              }
+            }
+          }
+        }
+      }
+    </script>
+    '''
+
+    candidates = _tiktok_search_candidates(raw)
+
+    assert len(candidates) == 1
+    assert candidates[0].handle == "yuridomingues"
+    assert candidates[0].title == "Yuri Domingues (@yuridomingues) | TikTok"
+    assert candidates[0].description == "Software & AI"
