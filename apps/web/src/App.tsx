@@ -261,6 +261,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   async function refreshCases(preferred?: string) {
     const items = await api.cases();
@@ -440,20 +441,23 @@ export default function App() {
             )}
 
             <section className="stat-grid six">
-              <div className="stat"><Network /><span><b>{stats.entities}</b> entities</span></div>
-              <div className="stat"><Activity /><span><b>{stats.edges}</b> relations</span></div>
-              <div className="stat"><Database /><span><b>{stats.evidence}</b> evidence</span></div>
-              <div className="stat"><FileSearch /><span><b>{stats.findings}</b> findings</span></div>
-              <div className="stat"><Lightbulb /><span><b>{stats.hypotheses}</b> hypotheses</span></div>
-              <div className="stat"><FileText /><span><b>{stats.pins}</b> pinned</span></div>
+              <div className="stat"><Network /><span><b>{stats.entities}</b> itens</span></div>
+              <div className="stat"><Activity /><span><b>{stats.edges}</b> conexões</span></div>
+              <div className="stat"><Database /><span><b>{stats.evidence}</b> fontes</span></div>
+              <div className="stat"><FileSearch /><span><b>{stats.findings}</b> achados</span></div>
+              <div className="stat"><Lightbulb /><span><b>{stats.hypotheses}</b> hipóteses</span></div>
+              <div className="stat"><FileText /><span><b>{stats.pins}</b> selecionados</span></div>
             </section>
 
             <nav className="tabs scrollable">
-              {tabs.map(([id, label, Icon, advanced]) => (
+              {tabs.filter(([, , , advanced]) => !advanced || showAdvanced).map(([id, label, Icon, advanced]) => (
                 <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
                   <Icon size={15} />{label}{advanced ? <small>avançado</small> : null}
                 </button>
               ))}
+              <button className={showAdvanced ? "advanced-toggle active" : "advanced-toggle"} onClick={() => setShowAdvanced((value) => !value)}>
+                <Boxes size={14} /> {showAdvanced ? "ocultar avançado" : "mostrar avançado"}
+              </button>
             </nav>
 
             <section className="content">
