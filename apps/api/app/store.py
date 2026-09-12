@@ -11,7 +11,8 @@ from .models import Case, CaseCreate, Edge, Entity, Evidence, Finding, GraphResp
 
 class Store:
     def __init__(self, path: str | None = None) -> None:
-        self.path = path or os.getenv("VIGIL_DB_PATH", "./data/vigil.db")
+        default_path = "/tmp/vigil.db" if os.getenv("VERCEL") else "./data/vigil.db"
+        self.path = path or os.getenv("VIGIL_DB_PATH", default_path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
