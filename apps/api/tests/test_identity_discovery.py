@@ -1,7 +1,13 @@
+import asyncio
+
+import httpx
+
 from app.identity_discovery import (
     Candidate,
     _canonical_profile,
     _candidate_name,
+    _fetch_candidate,
+    _name_handle_variants,
     _normalize_handle,
     _substack_publications_from_mapping,
     score_candidate,
@@ -141,3 +147,47 @@ def test_substack_publication_is_separate_from_author_profile():
     assert publications[0]["name"] == "Escassez"
     assert publications[0]["url"] == "https://escassez.substack.com"
     assert publications[0]["publication_id"] == 42
+
+
+
+def test_social_content_urls_are_not_profile_candidates():
+    assert _canonical_profile("https://www.instagram.com/p/ABC123/") is None
+    assert _canonical_profile("https://www.instagram.com/reel/ABC123/") is None
+    assert _canonical_profile("https://www.linkedin.com/posts/someone_abc") is None
+
+
+def test_public_name_generates_small_explainable_handle_variants():
+    variants = _name_handle_variants("Yuri Domingues", "dominguesyuri_")
+    assert "dominguesyuri_" in variants
+    assert "yuridomingues" in variants
+    assert "dominguesyuri" in variants
+    assert len(variants) <= 8
+
+
+def test_login_interstitial_does_not_overwrite_search_metadata():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            text=(
+                "<html><head><title>Instagram</title>"
+                "<meta name='description' content='Create an account or log in to Instagram'/>"
+                "</head><body></body></html>"
+            ),
+        )
+
+    candidate = Candidate(
+        url="https://www.instagram.com/dominguesyuri_",
+        platform="instagram",
+        handle="dominguesyuri_",
+        title="Yuri Domingues (@dominguesyuri_) • Instagram photos and videos",
+        description="dev @oneenergy_news leader @dacc_unifeso",
+    )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await _fetch_candidate(client, candidate)
+
+    result = asyncio.run(run())
+    assert result.title.startswith("Yuri Domingues")
+    assert result.description.startswith("dev ")
