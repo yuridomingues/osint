@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Boxes, Building2, CalendarClock, ChevronRight, CircleDot,
   Database, FileSearch, FileText, Globe2, Image as ImageIcon, LayoutDashboard, Lightbulb, ListChecks, Map,
-  Network, Play, Plus, RefreshCw, Search, ShieldCheck, UserRoundSearch, X
+  MoreHorizontal, Network, Play, Plus, RefreshCw, Search, ShieldCheck, UserRoundSearch, X
 } from "lucide-react";
 import { api, Case, ModuleInfo, TargetType, Workspace } from "./api";
 import AnalysisPanel from "./components/AnalysisPanel";
@@ -262,6 +262,7 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [mobileMore, setMobileMore] = useState(false);
 
   async function refreshCases(preferred?: string) {
     const items = await api.cases();
@@ -344,13 +345,38 @@ export default function App() {
   ];
 
   const currentCase = workspace?.graph.case;
+  const mobilePrimaryTabs: Array<[Tab, string, React.ComponentType<{ size?: number }>]> = [
+    ["overview", "Início", LayoutDashboard],
+    ["graph", "Conexões", Network],
+    ["evidence", "Fontes", Database],
+    ["image", "Imagem", ImageIcon]
+  ];
+  const mobileMoreTabs: Array<[Tab, string, React.ComponentType<{ size?: number }>]> = [
+    ["findings", "Achados", FileSearch],
+    ["timeline", "Linha do tempo", CalendarClock],
+    ["map", "Mapa", Map],
+    ["analysis", "Análise", Lightbulb],
+    ["report", "Relatório", FileText],
+    ["modules", "Módulos", Boxes],
+    ["audit", "Auditoria", ListChecks]
+  ];
 
   return (
     <div className="app">
+      <header className="mobile-header">
+        <div className="mobile-brand">
+          <div className="brand-mark"><CircleDot size={18} /></div>
+          <div><strong>VIGIL</strong><span>public intelligence</span></div>
+        </div>
+        <button className="mobile-new" onClick={() => setNewCase(true)} aria-label="Nova investigação">
+          <Plus size={18} />
+        </button>
+      </header>
+
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><CircleDot size={20} /></div>
-          <div><strong>VIGIL</strong><span>OSINT workbench</span></div>
+          <div><strong>VIGIL</strong><span>public intelligence</span></div>
         </div>
 
         <button className="primary new-button" onClick={() => setNewCase(true)}>
@@ -386,6 +412,16 @@ export default function App() {
       </aside>
 
       <main className="workspace">
+        {cases.length > 0 && (
+          <div className="mobile-case-switcher">
+            <span>Investigação</span>
+            <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+              {cases.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {!workspace ? (
           <div className="empty-state">
             <div className="radar"><span /><span /><span /><i /></div>
@@ -550,6 +586,54 @@ export default function App() {
           </>
         )}
       </main>
+
+      {workspace && (
+        <>
+          <nav className="mobile-bottom-nav" aria-label="Navegação principal">
+            {mobilePrimaryTabs.map(([id, label, Icon]) => (
+              <button
+                key={id}
+                className={tab === id ? "active" : ""}
+                onClick={() => { setTab(id); setMobileMore(false); }}
+              >
+                <Icon size={18} />
+                <span>{label}</span>
+              </button>
+            ))}
+            <button
+              className={mobileMore || mobileMoreTabs.some(([id]) => id === tab) ? "active" : ""}
+              onClick={() => setMobileMore((value) => !value)}
+            >
+              <MoreHorizontal size={19} />
+              <span>Mais</span>
+            </button>
+          </nav>
+
+          {mobileMore && (
+            <div className="mobile-more-backdrop" onClick={() => setMobileMore(false)}>
+              <div className="mobile-more-sheet" onClick={(e) => e.stopPropagation()}>
+                <div className="mobile-sheet-handle" />
+                <div className="mobile-sheet-head">
+                  <div><span className="eyebrow">navegação</span><b>Mais ferramentas</b></div>
+                  <button className="icon-button" onClick={() => setMobileMore(false)}><X size={16} /></button>
+                </div>
+                <div className="mobile-more-grid">
+                  {mobileMoreTabs.map(([id, label, Icon]) => (
+                    <button
+                      key={id}
+                      className={tab === id ? "active" : ""}
+                      onClick={() => { setTab(id); setMobileMore(false); }}
+                    >
+                      <Icon size={18} />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {newCase && (
         <NewCaseModal
