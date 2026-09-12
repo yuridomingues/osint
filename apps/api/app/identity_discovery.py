@@ -1099,11 +1099,34 @@ async def collect_public_identity_discovery(
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8"},
         follow_redirects=True,
     ) as client:
-        # Direct public Substack handle resolution is cheap and useful even when
-        # the seed came from another platform.
+        # Direct public-platform probes are cheap and useful even when the seed
+        # came from another platform. They stay weak candidates until corroborated.
         substack_seed = await _substack_public_profile(client, seed_handle)
         if substack_seed:
             candidates.setdefault(substack_seed.url, substack_seed)
+
+        for platform in ("youtube", "tiktok"):
+            platform_seed = await _public_platform_profile(client, platform, seed_handle)
+            if platform_seed:
+                existing = candidates.setdefault(platform_seed.url, platform_seed)
+                ev = Evidence(
+                    id=new_id("ev"),
+                    case_id=case_id,
+                    source=f"{platform.title()} public profile",
+                    collector=f"{platform}-public-profile-probe",
+                    source_url=platform_seed.url,
+                    excerpt=platform_seed.title,
+                    metadata={
+                        "platform": platform,
+                        "handle": platform_seed.handle,
+                        "discovery": "exact seed-handle probe",
+                        "bio": platform_seed.description[:500],
+                    },
+                    reliability=0.68,
+                )
+                evidence_id = add_evidence_once(ev)
+                if evidence_id not in existing.evidence_ids:
+                    existing.evidence_ids.append(evidence_id)
 
         queries = [
             f'"{seed_handle}"',
@@ -1265,6 +1288,37 @@ async def collect_public_identity_discovery(
                         if hub_evidence_id not in linked_candidate.evidence_ids:
                             linked_candidate.evidence_ids.append(hub_evidence_id)
 
+            # Platform-native/public searches reduce dependence on general search engines.
+            for platform in ("youtube", "tiktok"):
+                platform_people, platform_warning = await _platform_people_search(client, platform, name)
+                if platform_warning and platform_warning not in warnings:
+                    warnings.append(platform_warning)
+                for platform_candidate in platform_people:
+                    existing = candidates.setdefault(platform_candidate.url, platform_candidate)
+                    if not existing.title:
+                        existing.title = platform_candidate.title
+                    if not existing.description:
+                        existing.description = platform_candidate.description
+                    existing.outbound_links.update(platform_candidate.outbound_links)
+                    ev = Evidence(
+                        id=new_id("ev"),
+                        case_id=case_id,
+                        source=f"{platform.title()} public search",
+                        collector=f"{platform}-public-search",
+                        source_url=platform_candidate.url,
+                        excerpt=platform_candidate.title,
+                        metadata={
+                            "query": name,
+                            "platform": platform,
+                            "handle": platform_candidate.handle,
+                            "bio": platform_candidate.description[:500],
+                        },
+                        reliability=0.72,
+                    )
+                    evidence_id = add_evidence_once(ev)
+                    if evidence_id not in existing.evidence_ids:
+                        existing.evidence_ids.append(evidence_id)
+
             # First-party GitHub search is far more reliable than waiting for a web
             # search engine to index the right profile.
             github_people, github_warning = await _github_people_search(client, name)
@@ -1300,6 +1354,47 @@ async def collect_public_identity_discovery(
             # display name. A candidate is kept only when the first-party profile itself
             # matches the observed public name.
             for variant in variants:
+                for platform in ("youtube", "tiktok"):
+                    platform_variant = await _public_platform_profile(client, platform, variant)
+                    if not platform_variant:
+                        continue
+                    variant_name = _candidate_name(platform_variant.title, platform_variant.handle)
+                    similarity = _name_similarity(variant_name, name)
+                    if similarity < 0.90:
+                        continue
+                    platform_variant.provenance = (
+                        "explicit_link"
+                        if platform_variant.url in known_profiles
+                        else "name-variant-probe"
+                    )
+                    existing = candidates.setdefault(platform_variant.url, platform_variant)
+                    if not existing.title:
+                        existing.title = platform_variant.title
+                    if not existing.description:
+                        existing.description = platform_variant.description
+                    existing.outbound_links.update(platform_variant.outbound_links)
+                    if platform_variant.url in known_profiles:
+                        existing.provenance = "explicit_link"
+
+                    ev = Evidence(
+                        id=new_id("ev"),
+                        case_id=case_id,
+                        source=f"{platform.title()} public profile",
+                        collector=f"{platform}-name-variant-probe",
+                        source_url=platform_variant.url,
+                        excerpt=platform_variant.title,
+                        metadata={
+                            "query": name,
+                            "handle": platform_variant.handle,
+                            "display_name_similarity": round(similarity, 3),
+                            "discovery": "public-name-derived variant",
+                        },
+                        reliability=0.74,
+                    )
+                    evidence_id = add_evidence_once(ev)
+                    if evidence_id not in existing.evidence_ids:
+                        existing.evidence_ids.append(evidence_id)
+
                 github_variant = await _github_profile(client, variant)
                 if github_variant:
                     variant_name = _candidate_name(github_variant.title, github_variant.handle)
